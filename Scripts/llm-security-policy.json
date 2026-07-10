@@ -1,0 +1,28 @@
+{
+  "allowed_mcp_servers": [
+    "filesystem",
+    "git"
+  ],
+  "restricted_mcp_servers": {
+    "fetch": "Запрос сетевого ресурса требует подтверждения",
+    "github": "Доступ к GitHub ограничен"
+  },
+  "forbidden_commands": [
+    "rm -rf",
+    "format",
+    "curl",
+    "wget",
+    "poweroff",
+    "shutdown"
+  ],
+  "allowed_binaries": [
+    "node",
+    "git",
+    "codex",
+    "claude",
+    "agy",
+    "gemini",
+    "taskkill",
+    "dotnet"
+  ]
+}

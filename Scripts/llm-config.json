@@ -1,0 +1,148 @@
+{
+  "capability_tiers": {
+    "frontier": [
+      "Gemini 3.5 Pro",
+      "Claude Fable 5",
+      "Claude Opus 4.8",
+      "GPT-5.6 Sol"
+    ],
+    "advanced": [
+      "Gemini 3.1 Pro",
+      "Claude Sonnet 4.6",
+      "GPT-5.5",
+      "GPT-5.6 Terra",
+      "Gemini 2.0 Pro"
+    ],
+    "medium": [
+      "Gemini 3.5 Flash",
+      "Claude Haiku 4.5",
+      "GPT-5.6 Luna",
+      "Gemini 2.0 Flash",
+      "Claude 3.5 Haiku"
+    ],
+    "light": [
+      "Gemini 3.1 Flash-Lite",
+      "Gemini 1.5 Flash",
+      "GPT-4o-mini",
+      "Claude 3 Haiku",
+      "GPT-3.5-turbo",
+      "Local OSS (LM Studio/Ollama)"
+    ]
+  },
+  "strategy_role_tiers": {
+    "_comment": "Recommended minimum capability tier per role for each of the 7 strategies. Referenced by Workflows/RalphLoopPrinciples.md. Tier-to-model mapping lives in capability_tiers — update models THERE, never in protocol docs.",
+    "prompt_chaining": {
+      "planner": "medium",
+      "executor": "medium"
+    },
+    "routing": {
+      "router": "advanced",
+      "worker": "medium"
+    },
+    "parallelization": {
+      "worker": "medium",
+      "collator": "frontier"
+    },
+    "orchestrator_workers": {
+      "orchestrator": "frontier",
+      "worker": "medium"
+    },
+    "map_reduce": {
+      "map_worker": "medium",
+      "reduce_worker": "advanced",
+      "final_aggregator": "frontier"
+    },
+    "latm_tool_maker": {
+      "tool_maker": "advanced",
+      "tool_user": "medium"
+    },
+    "evaluator_optimizer": {
+      "generator": "advanced",
+      "evaluator": "deterministic_or_external_judge"
+    }
+  },
+  "cli_templates": {
+    "codex": "codex exec --skip-git-repo-check -m \"{model_id}\" \"{prompt}\"",
+    "claude": "claude -p \"{prompt}\"",
+    "gemini": "agy --new-project --dangerously-skip-permissions --model \"{model_id}\" -p \"{prompt}\""
+  },
+  "cli_transport": {
+    "_comment": "Reliable transport (cliTransport.js). Mode is determined by the binary: codex=file_out_flag(-o), claude=stdout(-p text), agy/gemini=file_out_instruct(answer written to a file per instruction). Content is never placed into argv.",
+    "judge_chain": [
+      "agy",
+      "claude",
+      "codex"
+    ],
+    "modes": {
+      "codex": "file_out_flag",
+      "claude": "stdout",
+      "agy": "file_out_instruct",
+      "gemini": "file_out_instruct"
+    }
+  },
+  "roles": {
+    "maker": {
+      "tier": "advanced",
+      "prefer_free": false,
+      "provider": "claude_cli",
+      "model_id": "Claude Sonnet 4.6",
+      "access_type": "cli",
+      "cli_command": "claude --model=\"{model_id}\" -p",
+      "temperature": 0.2
+    },
+    "judge": {
+      "tier": "medium",
+      "prefer_free": true,
+      "provider": "gemini_cli",
+      "model_id": "Gemini 3.5 Flash",
+      "access_type": "cli",
+      "cli_command": "agy --model \"{model_id}\" -p \"{prompt}\"",
+      "temperature": 0
+    },
+    "feedback_analyzer": {
+      "tier": "advanced",
+      "prefer_free": false,
+      "provider": "gemini_cli",
+      "model_id": "Gemini 3.1 Pro",
+      "access_type": "cli",
+      "cli_command": "agy --model \"{model_id}\" -p \"{prompt}\"",
+      "temperature": 0.2
+    },
+    "router": {
+      "tier": "medium",
+      "prefer_free": true,
+      "provider": "gemini",
+      "model_id": "gemini-2.0-flash",
+      "access_type": "http",
+      "env_var": "GEMINI_API_KEY",
+      "temperature": 0
+    },
+    "worker": {
+      "tier": "medium",
+      "prefer_free": true,
+      "provider": "gemini",
+      "model_id": "gemini-2.0-flash",
+      "access_type": "http",
+      "env_var": "GEMINI_API_KEY",
+      "temperature": 0.2
+    },
+    "collator": {
+      "tier": "advanced",
+      "prefer_free": false,
+      "provider": "gemini",
+      "model_id": "gemini-2.0-flash",
+      "access_type": "http",
+      "env_var": "GEMINI_API_KEY",
+      "temperature": 0.1
+    },
+    "orchestrator": {
+      "tier": "advanced",
+      "prefer_free": false,
+      "provider": "claude_cli",
+      "model_id": "Claude Sonnet 4.6",
+      "access_type": "cli",
+      "cli_command": "claude --model=\"{model_id}\" -p",
+      "temperature": 0.1
+    }
+  }
+}

@@ -1,0 +1,253 @@
+{
+  "_comment": "Model availability catalog. Consumed lazily by llmClient.js and ping_models.js. Not loaded by the judge/probe hot path.",
+  "available_models": [
+    {
+      "name": "Gemini 3.5 Flash",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:02.246Z",
+      "error": "PING Timeout (15s)"
+    },
+    {
+      "name": "Gemini 3.5 Pro",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:03.486Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Gemini 3.1 Pro",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:04.755Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Gemini 3.1 Flash-Lite",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:05.992Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Gemini 2.0 Flash",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:07.230Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Gemini 2.0 Pro",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:08.462Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Gemini 1.5 Pro",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:09.800Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Gemini 1.5 Flash",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:18:11.039Z",
+      "error": "CLI завершился с кодом 1: flag needs an argument: -p Usage of agy.exe:   --add-dir                       Add a directory to the workspace (repeatable) (default [])   -c                              Short alias for --continue   --continue                      Continue the most recent conversation   --conversation                  Resume a previous conversation by ID   --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting   -i                              Short alias for --prompt-interactive   --log-file                      Override CLI log file path   --model                         Model for the current CLI session   --new-project                   Create a new project for this session   -p                              Short alias for --print   --print                         Run a single prompt non-interactively and print the response   --print-timeout                 Timeout for print mode wait (default 5m0s)   --project                       Project ID for the current CLI session   --prompt                        Alias for --print   --prompt-interactive            Run an initial prompt interactively and continue the session   --sandbox                       Run in a sandbox with terminal restrictions enabled  Available subcommands:   changelog       Show changelog and release notes   help            Show help for subcommands   install         Configure environment paths and shell settings   models          List available models   plugin          Manage plugins (install, uninstall, list, enable, disable)   plugins         Alias for plugin   update          Update CLI "
+    },
+    {
+      "name": "Claude Mythos 5",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 7209,
+      "last_checked": "2026-06-30T12:18:19.254Z",
+      "error": null
+    },
+    {
+      "name": "Claude Fable 5",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 8815,
+      "last_checked": "2026-06-30T12:18:30.078Z",
+      "error": null
+    },
+    {
+      "name": "Claude Opus 4.8",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 7168,
+      "last_checked": "2026-06-30T12:18:39.264Z",
+      "error": null
+    },
+    {
+      "name": "Claude Sonnet 4.6",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 7350,
+      "last_checked": "2026-06-30T12:18:48.620Z",
+      "error": null
+    },
+    {
+      "name": "Claude Haiku 4.5",
+      "isFree": true,
+      "status": "online",
+      "latency_ms": 7222,
+      "last_checked": "2026-06-30T12:18:57.860Z",
+      "error": null
+    },
+    {
+      "name": "Claude 3.5 Sonnet",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 7094,
+      "last_checked": "2026-06-30T12:19:06.966Z",
+      "error": null
+    },
+    {
+      "name": "Claude 3.5 Haiku",
+      "isFree": true,
+      "status": "online",
+      "latency_ms": 7119,
+      "last_checked": "2026-06-30T12:19:16.105Z",
+      "error": null
+    },
+    {
+      "name": "Claude 3 Opus",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 7181,
+      "last_checked": "2026-06-30T12:19:25.300Z",
+      "error": null
+    },
+    {
+      "name": "Claude 3 Sonnet",
+      "isFree": false,
+      "status": "online",
+      "latency_ms": 7325,
+      "last_checked": "2026-06-30T12:19:34.646Z",
+      "error": null
+    },
+    {
+      "name": "Claude 3 Haiku",
+      "isFree": true,
+      "status": "online",
+      "latency_ms": 10351,
+      "last_checked": "2026-06-30T12:19:47.011Z",
+      "error": null
+    },
+    {
+      "name": "GPT-5.6 Sol",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:19:55.087Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:19:50.264262Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:19:50.264288Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:50.264291Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:50.264293Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:50.264295Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:50.264297Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-5.6 Sol provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1878-af7a-74c0-acfc-7d03c1cb57e8 -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.6 Sol' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.6 Sol' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-5.6 Terra",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:03.391Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:19:57.430659Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:19:57.430685Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:57.430688Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:57.430690Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:57.430692Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:19:57.430694Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-5.6 Terra provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1878-cb79-7251-a8b7-5ec002847782 -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.6 Terra' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.6 Terra' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-5.6 Luna",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:11.323Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:05.798025Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:05.798050Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:05.798053Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:05.798055Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:05.798057Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:05.798058Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-5.6 Luna provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1878-ec28-7853-8d69-179a9b1936e9 -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.6 Luna' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.6 Luna' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-5.5",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:18.579Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:13.678044Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:13.678071Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:13.678074Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:13.678075Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:13.678078Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:13.678079Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-5.5 provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-0af0-7220-9390-f04e7b19fe3a -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.5' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-5.5' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "o3",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:25.192Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:20.320863Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:20.320889Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:20.320894Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:20.320896Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:20.320898Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:20.320900Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: o3 provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-24e3-7e52-ac54-20db75483751 -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o3' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o3' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "o3-mini",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:32.354Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:26.950038Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:26.950065Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:26.950068Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:26.950070Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:26.950072Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:26.950074Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: o3-mini provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-3ec8-7d93-aa8c-4cac95ebb198 -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o3-mini' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o3-mini' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "o1",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:39.569Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:34.121106Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:34.121132Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:34.121135Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:34.121137Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:34.121139Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:34.121141Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: o1 provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-5acb-7962-83c5-b41426a9c51f -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o1' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o1' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "o1-mini",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:46.541Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:41.372401Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:41.372430Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:41.372433Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:41.372437Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:41.372440Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:41.372443Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: o1-mini provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-771e-7751-9039-14179076598e -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o1-mini' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'o1-mini' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-4o",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:20:53.615Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:48.362444Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:48.362470Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:48.362472Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:48.362474Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:48.362476Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:48.362478Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-4o provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-926c-7002-95af-903c935d784d -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-4o' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-4o' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-4o-mini",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:21:00.425Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:20:55.463650Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:20:55.463676Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:55.463679Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:55.463681Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:55.463683Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:20:55.463685Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-4o-mini provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-ae29-7e60-9eb3-8c9e7d4f596d -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-4o-mini' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-4o-mini' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-4-turbo",
+      "isFree": false,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:21:07.131Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:21:02.289022Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:21:02.289047Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:02.289050Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:02.289052Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:02.289054Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:02.289056Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-4-turbo provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-c8d3-7281-9234-dc1fe77ed50c -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-4-turbo' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-4-turbo' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "GPT-3.5-turbo",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:21:14.350Z",
+      "error": "CLI завершился с кодом 1: 2026-06-30T12:21:08.986422Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.codex\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- 2026-06-30T12:21:08.986449Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\perception\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:08.986452Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\shadergraph-design\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:08.986453Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\test\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:08.986455Z ERROR codex_core::session: failed to load skill C:\\Users\\DavASko\\.agents\\skills\\unity-skills\\skills\\validation\\SKILL.md: invalid description: exceeds maximum length of 1024 characters 2026-06-30T12:21:08.986457Z ERROR codex_core::session: failed to load skill E:\\UnityProjects\\IRI\\dentistry-cow\\.agents\\skills\\kbpro-mr-reviewer\\SKILL.md: missing YAML frontmatter delimited by --- OpenAI Codex v0.130.0-alpha.5 -------- workdir: E:\\UnityProjects\\IRI\\dentistry-cow model: GPT-3.5-turbo provider: openai approval: never sandbox: workspace-write [workdir, /tmp, C:\\Users\\DavASko\\.codex\\memories] reasoning effort: medium reasoning summaries: none session id: 019f1879-e2fc-7a01-a02f-49ae9d19af3e -------- user You are a ping bot. Reply only with 'pong'.  ping deprecated: `[features].codex_hooks` is deprecated. Use `[features].hooks` instead. Enable it with `--enable hooks` or `[features].hooks` in config.toml. See https://developers.openai.com/codex/config-basic#feature-flags for details. ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-3.5-turbo' model is not supported when using Codex with a ChatGPT account.\"}} ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'GPT-3.5-turbo' model is not supported when using Codex with a ChatGPT account.\"}} "
+    },
+    {
+      "name": "Local OSS (LM Studio/Ollama)",
+      "isFree": true,
+      "status": "offline",
+      "latency_ms": null,
+      "last_checked": "2026-06-30T12:21:15.361Z",
+      "error": "Нет доступного провайдера для модели: Local OSS (LM Studio/Ollama)"
+    }
+  ]
+}
