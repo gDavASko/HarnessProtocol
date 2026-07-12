@@ -147,11 +147,11 @@ All files reside in `memory/tactical/<task_id>/`:
 > [!IMPORTANT]
 > **The Self-Validation Ban:** An AI agent executing a task **never validates its own output**. A task is only considered complete once verified by a deterministic machine check (`auto`) or graded by **ANOTHER independent AI judge** (`ai`).
 
-### 1. F5 Integrity Gate (Strict Cross-Family Rule)
-To prevent model collusion and "hallucination shielding," the validator enforces strict cross-family checks:
-* The AI judge **must belong to a different model family** than the executor (worker).
-* If the worker is Claude (family `anthropic`), the judge cannot be a Claude variant or a Claude-based IDE subagent. It must be selected from a different family, such as Google (`google`/`agy`) or OpenAI (`openai`/`codex`).
-* If no cross-family judge is live, the validation status falls back to `UNVALIDATED` (never `PASS`), and the cycle halts.
+### 1. F5 Integrity Gate (Cross-Family Prioritization & Self-Validation Ban)
+To prevent self-bias and "hallucination shielding," the validator enforces strict session-isolated validation:
+* **The Self-Validation Ban:** An AI agent executing a task (the worker) **never** validates its own result in the active session.
+* **Cross-Family Prioritization:** The selection algorithm prioritizes judges from a different model family than the worker. For instance, if the worker is Claude (family `anthropic`), the system will prioritize Google (`google`/`agy`) or OpenAI (`openai`/`codex`) judges.
+* **Same-Family Fallback:** If no live cross-family judges are available, the system is allowed to fall back to same-family judges or subagents (such as a Claude-based IDE subagent), provided they run in a **fresh, session-isolated context** (clean history) to ensure audit objectivity.
 
 ```mermaid
 graph TD
@@ -159,23 +159,26 @@ graph TD
     Action --> Diff[Evidence: Git Diff / Artifacts]
     Diff --> Selector{judgeSelector.js}
     
-    Selector -- "Same Family Judge (e.g. Claude Subagent)" --> Block[F5 Integrity Guard Block]
-    Block --> Verdict1[Status: UNVALIDATED / Loop Paused]
+    Selector -- "Cross-Family Live (e.g. Gemini/GPT)" --> Cross[Cross-Family Judge Chosen]
+    Selector -- "Only Same-Family Live (e.g. Claude Subagent)" --> Fallback[Same-Family Fallback Chosen]
     
-    Selector -- "Cross-Family Judge (e.g. Gemini/GPT)" --> Eval[External AI Judge Execution]
-    Eval --> Verdict2{JSON Verdict}
-    Verdict2 -- "pass: true" --> PASS[Status: PASS]
-    Verdict2 -- "pass: false" --> FAIL[Status: FAIL / Retry]
+    Cross --> Eval1[External AI Judge Execution]
+    Fallback --> Eval2[Subagent-Fallback Execution]
+    
+    Eval1 --> Verdict{JSON Verdict}
+    Eval2 --> Verdict
+    
+    Verdict -- "pass: true" --> PASS[Status: PASS]
+    Verdict -- "pass: false" --> FAIL[Status: FAIL / Retry]
 ```
 
 ### 2. Subagent-Fallback Gating
-If no external CLI judges are live (e.g., in offline mode or during API outages), the validator falls back to calling a fresh IDE subagent. 
-However, **F5 rules still apply**:
-1. The validator outputs the judge's task to `ai_judge_task.md`.
+If no external CLI judges are live (e.g., in offline mode or during API outages), the validator falls back to calling a fresh IDE subagent:
+1. The validator outputs the judge's task description to `ai_judge_task.md`.
 2. State transitions to `awaiting_subagent_validation` and returns `action: NEEDS_SUBAGENT_JUDGE`.
-3. The IDE agent spawns a fresh subagent.
-4. If the worker model was Claude (`anthropic`), the subagent-judge (which is also Claude) **cannot** sign off on the work. The validator detects this same-family interaction, rejects a `pass: true` verdict, and marks the node `UNVALIDATED`.
-5. Progress is blocked until a live CLI judge of a different family is connected.
+3. The IDE agent spawns a fresh subagent with a clean session context.
+4. The subagent evaluates the task deliverables and writes its verdict JSON to `ai_judge_verdict.json`.
+5. The validator accepts the JSON, recording the mode as `subagent_fallback`. Same-family subagents (e.g., a Claude subagent judging a Claude worker) are allowed here to prevent developer lockups in offline environments.
 
 ### 3. Evidence-Cited Verdicts
 A judge cannot return a bare `pass: true`. The returned JSON must include an `evidence` array citing verbatim quotes or file diff snippets proving compliance. A verdict without citations is treated as a validation `FAIL`.

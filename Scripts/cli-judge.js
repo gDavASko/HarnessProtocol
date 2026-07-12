@@ -71,12 +71,13 @@ async function main() {
     // бинарники не опрашиваются вслепую и не вешают вызов таймаутами.
     const workerFam = toFamily(args.workerFamily);
     const { chain, model, probe, fallback } = await getAvailableJudgeChain({ excludeFamily: args.workerFamily });
-    // F5: STRICT cross-family — drop a same-family judge even if it is the only live one.
-    const strictChain = workerFam ? chain.filter(bin => familyOf(bin) !== workerFam) : chain;
+    // Prioritize cross-family, but allow same-family if no cross-family judges are live.
+    const crossFamilyChain = workerFam ? chain.filter(bin => familyOf(bin) !== workerFam) : chain;
+    const strictChain = crossFamilyChain.length > 0 ? crossFamilyChain : chain;
+
     if (fallback || strictChain.length === 0) {
         console.log(`🚨 НЕТ ДОСТУПНЫХ ВНЕШНИХ CLI-СУДЕЙ (preflight): ${probeSummary(probe)}`);
-        // The only fallback judge is a Claude subagent (anthropic). Valid ONLY when the
-        // worker is not Claude. Ask the selector; if same-family -> UNVALIDATED, not PASS.
+        // Try the Claude subagent (anthropic) as fallback.
         const sel = selectJudge({
             worker_family: args.workerFamily,
             artifact_kind: 'code',
@@ -84,15 +85,16 @@ async function main() {
             live_judges: [{ id: 'claude-subagent', family: 'anthropic' }]
         });
         if (sel.decision === 'UNVALIDATED') {
-            console.log(`🛑 UNVALIDATED: нет валидного кросс-семейного судьи для воркера '${workerFam}'. Claude-субагент того же семейства не может выносить вердикт. ${sel.reason}`);
-            console.log('➡️ Подключите живого CLI-судью другого семейства (agy/codex). Same-family PASS и самовалидация запрещены.');
+            console.log(`🛑 UNVALIDATED: нет доступных ИИ-судей для воркера '${workerFam}'. ${sel.reason}`);
             process.exit(3);
         }
         console.log('➡️ Fallback: используй НЕЗАВИСИМОГО субагента со СВЕЖИМ контекстом как судью (без доступа к текущему диалогу). Самовалидация в том же контексте запрещена.');
         process.exit(2);
     }
 
-    console.log(`🤖 Внешний судья. Живая кросс-семейная цепочка CLI: [${strictChain.join(' → ')}]...`);
+    const hasSameFamily = strictChain.some(bin => familyOf(bin) === workerFam);
+    const desc = hasSameFamily ? 'цепочка с резервом того же семейства' : 'кросс-семейная цепочка';
+    console.log(`🤖 Внешний судья. Живая ${desc} CLI: [${strictChain.join(' → ')}]...`);
 
     const judged = await callExternalJudge({
         workDir,

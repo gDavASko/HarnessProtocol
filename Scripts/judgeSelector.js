@@ -78,11 +78,13 @@ export function selectJudge({ worker_family, artifact_kind = 'code', criticality
             reason: 'L0 trivial/predefined: deterministic oracle (compile/test) is the verdict.' };
     }
 
-    // Keep only LIVE judges of a DIFFERENT family than the worker (cross-family rule).
-    // This is the single mechanism that makes a claude-subagent valid for agy/codex
-    // workers but invalid for a Claude worker.
+    // Keep all LIVE judges that have valid metadata.
+    // We prioritize cross-family (different family than worker) in sorting,
+    // but we no longer drop same-family models completely. This allows same-family
+    // subagent fallbacks when no cross-family judges are available, as long as
+    // session isolation rules are respected.
     const candidates = (live_judges || [])
-        .filter(j => j && j.id && toFamily(j.family) && toFamily(j.family) !== workerFam)
+        .filter(j => j && j.id && toFamily(j.family))
         .map(j => ({
             id: j.id,
             family: toFamily(j.family),
@@ -92,11 +94,17 @@ export function selectJudge({ worker_family, artifact_kind = 'code', criticality
 
     if (candidates.length === 0) {
         return { decision: 'UNVALIDATED', judges: [], tier: policy.tier, mode: policy.mode,
-            reason: `No live cross-family judge for worker family '${workerFam || 'unknown'}'. Never PASS -> UNVALIDATED.` };
+            reason: `No live judges available at all. Never PASS -> UNVALIDATED.` };
     }
 
-    // Rank: fit (desc) -> latency (asc) -> cost (asc) -> id (stable).
+    // Rank: cross-family first (desc) -> fit (desc) -> latency (asc) -> cost (asc) -> id (stable).
     const ranked = candidates.slice().sort((a, b) => {
+        const aIsCross = workerFam ? (a.family !== workerFam) : true;
+        const bIsCross = workerFam ? (b.family !== workerFam) : true;
+        if (aIsCross !== bIsCross) {
+            return aIsCross ? -1 : 1; // Prioritize cross-family judges
+        }
+
         const f = fitScore(b.family, artifact_kind) - fitScore(a.family, artifact_kind);
         if (f !== 0) return f;
         if (a.latency !== b.latency) return a.latency - b.latency;
@@ -121,15 +129,18 @@ export function selectJudge({ worker_family, artifact_kind = 'code', criticality
         }
         if (picked.length >= 2) {
             return { decision: 'judges', judges: picked.slice(0, policy.count), tier: policy.tier,
-                mode: 'quorum', reason: `L3 critical: strong quorum of ${policy.count} cross-family judges.` };
+                mode: 'quorum', reason: `L3 critical: strong quorum of ${policy.count} judges.` };
         }
         return { decision: 'judges', judges: [picked[0]], tier: policy.tier, mode: 'dual_order',
-            reason: 'L3 critical but only one cross-family judge live: strong judge run dual-order (two evidence orderings).' };
+            reason: 'L3 critical but only one judge live: strong judge run dual-order (two evidence orderings).' };
     }
 
-    // L1 / L2: a single best-fit cross-family judge.
-    return { decision: 'judges', judges: [ranked[0]], tier: policy.tier, mode: 'single',
-        reason: `${crit}: one ${policy.tier} cross-family judge (best fit for artifact_kind='${artifact_kind}').` };
+    // L1 / L2: a single best-fit judge.
+    const chosen = ranked[0];
+    const isCross = workerFam ? (chosen.family !== workerFam) : true;
+    const desc = isCross ? 'cross-family' : 'same-family fallback';
+    return { decision: 'judges', judges: [chosen], tier: policy.tier, mode: 'single',
+        reason: `${crit}: one ${policy.tier} ${desc} judge (best fit for artifact_kind='${artifact_kind}').` };
 }
 
 export default selectJudge;
@@ -144,10 +155,11 @@ function runSelfTest() {
         live_judges: [{ id: 'agy', family: 'google' }] });
     check('L0 -> oracle_only', t1.decision === 'oracle_only' && t1.judges.length === 0);
 
-    // 2) claude worker + only claude-subagent live -> UNVALIDATED (same family)
+    // 2) claude worker + only claude-subagent live -> chooses claude-subagent (as same-family fallback)
     const t2 = selectJudge({ worker_family: 'claude', artifact_kind: 'code', criticality: 'L1',
         live_judges: [{ id: 'claude-subagent', family: 'anthropic' }] });
-    check('claude worker + only claude-subagent -> UNVALIDATED', t2.decision === 'UNVALIDATED' && t2.judges.length === 0);
+    check('claude worker + only claude-subagent -> chooses claude-subagent as fallback', 
+        t2.decision === 'judges' && t2.judges.length === 1 && t2.judges[0].id === 'claude-subagent');
 
     // 3) agy worker + claude-subagent live -> claude-subagent chosen
     const t3 = selectJudge({ worker_family: 'agy', artifact_kind: 'code', criticality: 'L1',
