@@ -4,7 +4,8 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { callExternalJudge } from './cliTransport.js';
-import { getAvailableJudgeChain, probeSummary } from './aiProbe.js';
+import { getAvailableJudgeChain, probeSummary, familyOf } from './aiProbe.js';
+import { selectJudge, toFamily } from './judgeSelector.js';
 import { findRepoRoot } from './harnessPaths.js';
 import {
     UTF8_BOM,
@@ -25,6 +26,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Максимальный объём доказательной базы (diff/артефакты), передаваемой судье.
 // Контент идёт в файл/stdin (не в argv), но усечение защищает контекст модели.
 const MAX_EVIDENCE_CHARS = 100000;
+
+// F5: derive a node's criticality for judge selection. Explicit node.criticality
+// wins; otherwise map from tier/mode (deep/harness -> more critical). Defaults L1.
+function deriveCriticality(node) {
+    if (node && node.criticality) return node.criticality;
+    const tier = (node && node.tier) || '';
+    if (tier === 'deep') return 'L3';
+    if (node && node.mode === 'harness') return 'L2';
+    return 'L1';
+}
 
 function parseArgs() {
     const args = process.argv.slice(2);
@@ -446,20 +457,29 @@ async function runAiValidation(taskDir, node) {
     const { systemText, userText } = await buildJudgePrompt(taskDir, node);
 
     // A judge must not be a sibling of the executor's own model family.
+    const workerFam = toFamily(node.worker_family);
     const { chain, model, probe, fallback } = await getAvailableJudgeChain({ excludeFamily: node.worker_family || null });
-    if (fallback) {
+    // F5: STRICT cross-family. getAvailableJudgeChain keeps a same-family judge as a
+    // last resort (never down to zero); here we drop it outright so a sibling model
+    // can never grade the worker. If nothing cross-family is live, fall through to the
+    // selector-gated subagent path (never a silent same-family PASS).
+    const strictChain = workerFam ? chain.filter(bin => familyOf(bin) !== workerFam) : chain;
+    if (fallback || strictChain.length === 0) {
         return {
             overall: null,
             fallback_required: true,
             probe_summary: probeSummary(probe)
         };
     }
-    const timeoutMs = parseInt(process.env.HARNESS_JUDGE_TIMEOUT_MS, 10) || undefined;
-
-    // Вызываем судей параллельно
-    const judged = await callExternalJudge({
-        workDir: taskDir, systemText, userText, chain, model, timeoutMs
-    });
+    // Shorter default per-call timeout for judges + bounded retry (max 2 attempts).
+    const timeoutMs = parseInt(process.env.HARNESS_JUDGE_TIMEOUT_MS, 10) || 60000;
+    let judged = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        judged = await callExternalJudge({
+            workDir: taskDir, systemText, userText, chain: strictChain, model, timeoutMs
+        });
+        if (judged.ok) break;
+    }
 
     if (!judged.ok) {
         const tried = (judged.attempts || []).map(a => `${a.bin}: ${a.error}`).join(' | ');
@@ -664,6 +684,27 @@ async function main() {
                     process.exit(1);
                 }
 
+                // F5 integrity guard: the subagent-fallback judge is a fresh Claude
+                // subagent (family anthropic). It CANNOT sign off on a Claude worker's
+                // work (same family). A same-family PASS is downgraded to UNVALIDATED —
+                // never PASS. Cross-family workers (agy/codex) and unknown/null worker
+                // family are unaffected (existing behavior preserved).
+                if (verdict.pass && toFamily(node.worker_family) === 'anthropic') {
+                    validationResult = 'UNVALIDATED';
+                    validationComment = 'Судья [subagent-fallback] отклонён: воркер и субагент-судья одного семейства (anthropic). Same-family PASS запрещён (F5) — узел UNVALIDATED. Назначьте независимого судью другого семейства (agy/codex).';
+                    await updateReportVerdict(options.taskDir, validationResult, validationComment);
+                    updateRoadmapAfterValidation(roadmap, node, validationResult, validationComment, null);
+                    state.validation_mode = 'subagent_fallback';
+                    response = {
+                        type: 'ai',
+                        judge: 'subagent_fallback',
+                        node: node.id,
+                        result: validationResult,
+                        comment: validationComment
+                    };
+                    break;
+                }
+
                 if (verdict.pass) {
                     const subagentCheck = await validateSubagentsStructure(options.taskDir, node);
                     if (!subagentCheck.success) {
@@ -698,6 +739,38 @@ async function main() {
             const aiCheck = await runAiValidation(options.taskDir, node);
 
             if (aiCheck.fallback_required) {
+                // F5 integrity gate: the ONLY available fallback judge is a fresh Claude
+                // subagent (family anthropic). Ask the selector whether that is a valid
+                // cross-family judge for THIS worker. If not (worker is Claude), do NOT
+                // offer a subagent PASS — the node is UNVALIDATED, never PASS.
+                const sel = selectJudge({
+                    worker_family: node.worker_family,
+                    artifact_kind: node.artifact_kind,
+                    criticality: deriveCriticality(node),
+                    live_judges: [{ id: 'claude-subagent', family: 'anthropic' }]
+                });
+                if (sel.decision === 'UNVALIDATED') {
+                    const unvComment = `Нет валидного кросс-семейного судьи для воркера '${toFamily(node.worker_family)}': единственный доступный fallback — Claude-субагент (anthropic), одного семейства с воркером. ${sel.reason} (probe: ${aiCheck.probe_summary})`;
+                    await updateReportVerdict(options.taskDir, 'UNVALIDATED', unvComment);
+                    updateRoadmapAfterValidation(roadmap, node, 'UNVALIDATED', unvComment, null);
+                    state.stage = 'report_ready';
+                    state.validation_type = 'ai';
+                    state.validation_result = 'UNVALIDATED';
+                    state.current_node = node.id;
+                    await writeRoadmap(options.taskDir, roadmap, { syncMarkdown: true });
+                    await writeState(options.taskDir, state);
+                    console.log(JSON.stringify({
+                        type: 'ai',
+                        node: node.id,
+                        result: 'UNVALIDATED',
+                        judge: 'none',
+                        reason: sel.reason,
+                        probe: aiCheck.probe_summary,
+                        message: 'Нет валидного кросс-семейного судьи (единственный fallback — Claude-субагент того же семейства). Узел НЕ засчитан как PASS (UNVALIDATED). Подключите живого CLI-судью другого семейства (agy/codex) и повторите валидацию.'
+                    }, null, 2));
+                    return;
+                }
+                // Субагент — валидный кросс-семейный судья (воркер не Claude): штатный fallback.
                 // Внешних судей нет — выгружаем задание судьи и переводим цикл в
                 // режим субагент-валидации, НЕ роняя узел «мусорным» FAIL.
                 const { systemText, userText } = await buildJudgePrompt(options.taskDir, node);
@@ -792,6 +865,11 @@ async function main() {
         state.stage = 'validated';
         state.validated_at = new Date().toISOString();
         state.validation_result = 'PASS';
+        state.current_node = node.id;
+    } else if (validationResult === 'UNVALIDATED') {
+        // F5: not a FAIL (the work may be fine) but NOT certified — cannot advance.
+        state.stage = 'report_ready';
+        state.validation_result = 'UNVALIDATED';
         state.current_node = node.id;
     } else {
         state.stage = 'report_ready';

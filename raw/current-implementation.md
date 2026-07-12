@@ -23,6 +23,7 @@
 | `cliTransport.js` | Reliable invocation of external CLI AIs (external judge). Content never in argv — file/stdin only. |
 | `aiProbe.js` | Preflight availability probe of the CLI judges. Runs in parallel at cycle start (`contextAssembler --mode init`), caches to `.harness/ai_probe.json` (TTL). All judge consumers filter the chain by the probe. |
 | `cli-judge.js` | Manual external judge over an arbitrary file. |
+| `judgeSelector.js` | Pure, side-effect-free judge-selection calculus (criticality → which cross-family judge(s), or `oracle_only` / `UNVALIDATED`). Node-runnable self-test. |
 | `measureTokens.js` | Measures the token savings of contextAssembler vs naive L2 reading. |
 | `reindexTactical.js` | Auto-builds the navigation matrix in the master document. |
 
@@ -143,3 +144,16 @@ Key node fields: `id`, `status`, `iteration`/`max_iterations`, `strategy`, `vali
 - **F2 — deterministic oracle beats the paid judge:** `validator.js` type `ai` short-circuits when a `--cmd` oracle is supplied — the exit code is the verdict (`judge:'deterministic_oracle'`, zero judge tokens). type `auto` never called a judge; pure-`ai` (no oracle) is unchanged.
 - **F3 — drift-guard actionable-or-silent + lean context:** a `REQUIRE_CORRECTION` blocks advance until a corrective node is actually added (`--acknowledge` returns `CORRECTION_MISSING` until the roadmap grows past `drift_baseline_nodes`); non-actionable findings (empty `corrective`) do not block; the auditor is told to ignore not-yet-executed PENDING work; the audit prompt drops the heavy preamble (~900 bytes/call) for a lean header + DONE-scope DoD + git-diff delta.
 - **F4 — entry gate (classic vs harness):** nodes carry a `mode` (`classic|harness`). New nodes default to `validation=auto` + `classic` (cheap deterministic path); the full harness (LLM judge, drift-guard, WAL) is reserved for nodes with no cheap oracle — mark them `--validation ai` or `--mode harness`. Heuristic surfaced in `task_initializer` `mode_gate` and `roadmapEdit list`.
+
+---
+
+## 11. Agent roles, model tiering & judge selection
+
+The agent-role subsystem lives in `agents/` and `config/` (docs) plus `Scripts/judgeSelector.js` (code). It formalizes WHICH model tier each role uses and WHICH judge validates each node.
+
+- **Model-Tier Doctrine** (root/synced `AGENTS.md`): orchestrator/chat → top-tier; planners/solvers/researchers → max; evaluators → medium-high; judges → medium (escalated by criticality); workers → cheap; glue → cheaper subagents. Hard rules: never run mechanical work on a top-tier model; never validate a critical result with a weak judge.
+- **Canonical roles** (`agents/roles/*.md`): engine-agnostic `worker` (cheap), `judge` (medium), `evaluator` (medium-high), `reasoner` (max), `researcher` (max), `manager` (top). Judge/evaluator carry the cross-family constraint.
+- **Config** (`config/harness.config.json` + `config/README.md`): `available_models` (locally available only — agy/google, codex/openai, claude/anthropic incl. `claude-subagent`; hosted APIs are a reserved `external_api_slot`), `agent_roles` (tier + families), `judge_pool`, `criticality_judge_tier` (L0–L3), `per_role_limits`. User-tunable; per-machine override via `harness.config.local.json` (deep-merge) then env vars.
+- **Universal generator** (`agents/AGENT-DEFINITION-SPEC.md`): a deterministic recipe to emit native per-IDE agent files (Claude Code frontmatter, Codex prompts, Gemini Antigravity) from the canonical roles + config. Claude Code variants are emitted in `agents/claude/` (worker→sonnet, judge/evaluator→opus-4-7 read-only, reasoner/researcher/manager→opus-4-8).
+- **Judge-selection calculus** (`config/judge-selection.md`, `Scripts/judgeSelector.js`): pure `selectJudge({worker_family, artifact_kind, criticality, live_judges})` → chosen judge(s) / `oracle_only` / `UNVALIDATED`. Excludes the worker family; optimizes by fit×criticality, then latency, then cost. L0→oracle only; L1→medium; L2→strong; L3→strong quorum (or dual-order if a single cross-family judge is live).
+- **F5 integrity wire** (`validator.js`, `cli-judge.js`): a subjective (`ai`) node can no longer report PASS via a same-family subagent fallback alone. The external-judge chain is filtered to STRICT cross-family (a sibling model is dropped even if it is the only live judge); the subagent-fallback path is gated by the selector — when the only fallback is a Claude subagent and the worker is Claude, the node is `UNVALIDATED` (a new terminal validation result, distinct from FAIL, that does not advance the loop) instead of PASS. The judge call uses a shorter default per-call timeout (60s) with a bounded retry, and the judge context is already trimmed to DoD + changed evidence (not the full transcript). Cross-family workers (agy/codex) keep the existing PASS path unchanged.

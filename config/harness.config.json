@@ -1,0 +1,108 @@
+{
+  "$schema": "./README.md",
+  "version": 1,
+  "_comment": "Default, user-tunable harness agent/model config. Locally-available families only (agy=google, codex=openai, claude=anthropic incl. claude-subagent). Override per machine with a sibling harness.config.local.json (deep-merged over this file). External API vendors are a reserved future slot. Do NOT hard-code model ids into protocol prose; they live HERE.",
+
+  "tiers": ["cheap", "medium", "high", "max", "top"],
+
+  "available_models": {
+    "claude": {
+      "family": "anthropic",
+      "access": "cli",
+      "cost": "paid",
+      "latency_hint_ms": 9000,
+      "variants": {
+        "cheap": ["Claude Sonnet 4.6", "Claude Haiku 4.5"],
+        "medium": ["Claude Opus 4.7"],
+        "high": ["Claude Opus 4.7"],
+        "max": ["Claude Opus 4.8", "Claude Fable 5"],
+        "top": ["Claude Fable 5", "Claude Opus 4.8"]
+      }
+    },
+    "claude-subagent": {
+      "family": "anthropic",
+      "access": "ide_subagent",
+      "cost": "included",
+      "latency_hint_ms": 12000,
+      "_comment": "Fresh-context IDE subagent (Claude Code). Same family as claude; valid cross-family judge ONLY when worker family is not anthropic.",
+      "variants": {
+        "cheap": ["sonnet"],
+        "medium": ["opus-4-7"],
+        "high": ["opus-4-7"],
+        "max": ["opus-4-8"],
+        "top": ["opus-4-8"]
+      }
+    },
+    "agy": {
+      "family": "google",
+      "access": "cli",
+      "cost": "free_tier",
+      "latency_hint_ms": 30000,
+      "variants": {
+        "cheap": ["Gemini 3.5 Flash", "Gemini 2.0 Flash"],
+        "medium": ["Gemini 3.1 Pro"],
+        "high": ["Gemini 3.1 Pro"],
+        "max": ["Gemini 3.5 Pro"],
+        "top": ["Gemini 3.5 Pro"]
+      }
+    },
+    "codex": {
+      "family": "openai",
+      "access": "cli",
+      "cost": "paid",
+      "latency_hint_ms": 15000,
+      "variants": {
+        "cheap": ["GPT-5.6 Luna"],
+        "medium": ["GPT-5.6 Terra"],
+        "high": ["GPT-5.6 Terra"],
+        "max": ["GPT-5.6 Sol"],
+        "top": ["GPT-5.6 Sol"]
+      }
+    }
+  },
+
+  "external_api_slot": {
+    "_comment": "Reserved for future non-local API judges/workers (e.g. hosted Anthropic/OpenAI/Google APIs). Empty by default; when populated, entries mirror available_models with access:'http' + env_var.",
+    "enabled": false,
+    "providers": {}
+  },
+
+  "agent_roles": {
+    "worker":     { "default_tier": "cheap", "allowed_tiers": ["cheap", "medium"], "families": ["claude", "agy", "codex", "claude-subagent"] },
+    "judge":      { "default_tier": "medium", "allowed_tiers": ["medium", "high", "max"], "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
+    "evaluator":  { "default_tier": "high", "allowed_tiers": ["medium", "high", "max"], "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
+    "reasoner":   { "default_tier": "max", "allowed_tiers": ["max"], "families": ["claude", "agy", "codex"] },
+    "researcher": { "default_tier": "max", "allowed_tiers": ["high", "max"], "families": ["claude", "agy", "codex"] },
+    "manager":    { "default_tier": "top", "allowed_tiers": ["top", "max"], "families": ["claude", "agy", "codex"] }
+  },
+
+  "judge_pool": [
+    { "id": "agy", "family": "google" },
+    { "id": "codex", "family": "openai" },
+    { "id": "claude-subagent", "family": "anthropic" }
+  ],
+
+  "criticality_judge_tier": {
+    "_comment": "Maps a node's criticality to the judge decision. See config/judge-selection.md for the full calculus.",
+    "L0": { "judge": "none", "tier": null, "note": "trivial/predefined code -> deterministic oracle only (compile/test). No LLM judge." },
+    "L1": { "judge": "single", "tier": "medium", "note": "standard -> one medium cross-family judge." },
+    "L2": { "judge": "single", "tier": "high", "note": "important -> one strong cross-family judge." },
+    "L3": { "judge": "quorum", "tier": "max", "note": "critical/high-cost-of-error -> strong judge + quorum or dual-order." }
+  },
+
+  "per_role_limits": {
+    "worker":     { "timeout_ms": 120000, "retries": 1, "budget_tokens": 60000 },
+    "judge":      { "timeout_ms": 45000, "retries": 1, "budget_tokens": 20000 },
+    "evaluator":  { "timeout_ms": 60000, "retries": 1, "budget_tokens": 30000 },
+    "reasoner":   { "timeout_ms": 180000, "retries": 0, "budget_tokens": 120000 },
+    "researcher": { "timeout_ms": 180000, "retries": 0, "budget_tokens": 120000 },
+    "manager":    { "timeout_ms": 0, "retries": 0, "budget_tokens": 0, "_comment": "0 = unbounded/interactive; the manager is the human-facing loop." }
+  },
+
+  "env_overrides": {
+    "_comment": "Env vars that already tune the live harness; documented here so config and runtime agree.",
+    "judge_timeout_ms": "HARNESS_JUDGE_TIMEOUT_MS",
+    "probe_timeout_ms": "HARNESS_PROBE_TIMEOUT_MS",
+    "probe_ttl_ms": "HARNESS_PROBE_TTL_MS"
+  }
+}

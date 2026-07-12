@@ -3,7 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { callExternalJudge } from './cliTransport.js';
-import { getAvailableJudgeChain, probeSummary } from './aiProbe.js';
+import { getAvailableJudgeChain, probeSummary, familyOf } from './aiProbe.js';
+import { selectJudge, toFamily } from './judgeSelector.js';
 import { findRepoRoot } from './harnessPaths.js';
 
 // ─── Ручной внешний ИИ-судья ─────────────────────────────────────────────────
@@ -68,20 +69,36 @@ async function main() {
 
     // Цепочка судей фильтруется по preflight-опросу (aiProbe.js) — мёртвые
     // бинарники не опрашиваются вслепую и не вешают вызов таймаутами.
+    const workerFam = toFamily(args.workerFamily);
     const { chain, model, probe, fallback } = await getAvailableJudgeChain({ excludeFamily: args.workerFamily });
-    if (fallback) {
+    // F5: STRICT cross-family — drop a same-family judge even if it is the only live one.
+    const strictChain = workerFam ? chain.filter(bin => familyOf(bin) !== workerFam) : chain;
+    if (fallback || strictChain.length === 0) {
         console.log(`🚨 НЕТ ДОСТУПНЫХ ВНЕШНИХ CLI-СУДЕЙ (preflight): ${probeSummary(probe)}`);
+        // The only fallback judge is a Claude subagent (anthropic). Valid ONLY when the
+        // worker is not Claude. Ask the selector; if same-family -> UNVALIDATED, not PASS.
+        const sel = selectJudge({
+            worker_family: args.workerFamily,
+            artifact_kind: 'code',
+            criticality: args.tier,
+            live_judges: [{ id: 'claude-subagent', family: 'anthropic' }]
+        });
+        if (sel.decision === 'UNVALIDATED') {
+            console.log(`🛑 UNVALIDATED: нет валидного кросс-семейного судьи для воркера '${workerFam}'. Claude-субагент того же семейства не может выносить вердикт. ${sel.reason}`);
+            console.log('➡️ Подключите живого CLI-судью другого семейства (agy/codex). Same-family PASS и самовалидация запрещены.');
+            process.exit(3);
+        }
         console.log('➡️ Fallback: используй НЕЗАВИСИМОГО субагента со СВЕЖИМ контекстом как судью (без доступа к текущему диалогу). Самовалидация в том же контексте запрещена.');
         process.exit(2);
     }
 
-    console.log(`🤖 Внешний судья. Живая цепочка CLI: [${chain.join(' → ')}]...`);
+    console.log(`🤖 Внешний судья. Живая кросс-семейная цепочка CLI: [${strictChain.join(' → ')}]...`);
 
     const judged = await callExternalJudge({
         workDir,
         systemText,
         userText: `${prompt}\n\n===== МАТЕРИАЛ =====\n${fileContent}`,
-        chain,
+        chain: strictChain,
         model: args.tier === 2 ? null : model, // For tier 2 we let cliTransport pick default or fast model if implemented, here we just don't force slow model
         timeoutMs: 90000
     });
