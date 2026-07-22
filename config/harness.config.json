@@ -68,12 +68,12 @@
   },
 
   "agent_roles": {
-    "worker":     { "default_tier": "cheap", "allowed_tiers": ["cheap", "medium"], "families": ["claude", "agy", "codex", "claude-subagent"] },
-    "judge":      { "default_tier": "medium", "allowed_tiers": ["medium", "high", "max"], "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
-    "evaluator":  { "default_tier": "high", "allowed_tiers": ["medium", "high", "max"], "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
-    "reasoner":   { "default_tier": "max", "allowed_tiers": ["max"], "families": ["claude", "agy", "codex"] },
-    "researcher": { "default_tier": "max", "allowed_tiers": ["high", "max"], "families": ["claude", "agy", "codex"] },
-    "manager":    { "default_tier": "top", "allowed_tiers": ["top", "max"], "families": ["claude", "agy", "codex"] }
+    "worker":     { "default_tier": "cheap", "allowed_tiers": ["cheap", "medium"], "reasoning_effort": "low", "families": ["claude", "agy", "codex", "claude-subagent"] },
+    "judge":      { "default_tier": "medium", "allowed_tiers": ["medium", "high", "max"], "reasoning_effort": "medium", "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
+    "evaluator":  { "default_tier": "high", "allowed_tiers": ["medium", "high", "max"], "reasoning_effort": "high", "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
+    "reasoner":   { "default_tier": "max", "allowed_tiers": ["max"], "reasoning_effort": "high", "families": ["claude", "agy", "codex"] },
+    "researcher": { "default_tier": "max", "allowed_tiers": ["high", "max"], "reasoning_effort": "high", "families": ["claude", "agy", "codex"] },
+    "manager":    { "default_tier": "top", "allowed_tiers": ["top", "max"], "reasoning_effort": "medium", "families": ["claude", "agy", "codex"] }
   },
 
   "judge_pool": [
