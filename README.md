@@ -75,6 +75,10 @@ graph TD
 * **Session Isolation:** Subagents are spawned with fresh, clean session histories. They do not share active memory logs to prevent cross-contamination.
 * **Pre-Context Assembly:** Context is compiled and injected into the first turn of the subagent.
 * **External Auditing:** An executor subagent must never evaluate its own result. All evaluations go through a third party (compiler or independent AI judge).
+* **Absolute Ban on Skipping Steps (No Skip Law):** It is strictly forbidden to skip stages when an error occurs. If a process fails, the agent must stop, add a troubleshooting node, fix the problem, and only then return to execution.
+* **Anti-Hallucination Law (No Agent Simulation):** It is strictly forbidden to emulate or hallucinate responses from other agents or utilities. If a call fails, the real error must be handled. Faking a response is considered sabotage.
+* **Model Fallback Protocol:** When invoking AI via scripts, all available models of the current tier must be attempted. If none are available, the system is allowed to fall back exactly one tier lower. Giving up after the first API failure is forbidden.
+* **Mandatory Compilation Checks:** It is forbidden to complete a code implementation without checking compiler logs. Any compilation errors must be fixed immediately.
 
 ### Brain Partitioning by `artifact_kind`
 The Harness splits execution strategies based on the kind of work:
