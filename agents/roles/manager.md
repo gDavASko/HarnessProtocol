@@ -42,8 +42,9 @@ down to specialized agents rather than doing bulk work itself.
 The entry-point agent — launched by the human (chat) or by `harness-orchestrator.js`
 for autonomous `text` nodes. All other roles are launched BY the Manager.
 
-## Cross-family constraints
+## Isolation constraints
 Not a validator itself, but RESPONSIBLE for enforcing them: it records `worker_family`
-per node and routes validation through `judgeSelector.js`, ensuring a claude-subagent
-is used as Judge only when the Worker is not Claude, and that no critical result is
-signed off by a weak or same-family judge.
+per node and routes validation through `judgeSelector.js`, ensuring every verdict comes
+from an INDEPENDENT, fresh-context judge (never the worker's own session). A same-family
+isolated judge (e.g. a claude-subagent for a Claude worker) is acceptable — cross-family
+is preferred, not required — but no critical result is ever signed off by a weak judge.

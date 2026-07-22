@@ -1,0 +1,12 @@
+{
+  "name": "readonly-code-audit",
+  "phases": ["split", "readonly_audit", "aggregate", "independent_validation"],
+  "max_concurrent_workers": 3,
+  "max_workers_per_run": 8,
+  "token_budget": 60000,
+  "worker_phase": "readonly_audit",
+  "phase_budgets": { "split": 5000, "readonly_audit": 45000, "aggregate": 5000, "independent_validation": 5000 },
+  "allowed_actions": ["read", "aggregate_findings", "request_independent_validation"],
+  "validation": "ai",
+  "writes_code": false
+}

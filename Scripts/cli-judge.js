@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { callExternalJudge } from './cliTransport.js';
-import { getAvailableJudgeChain, probeSummary, familyOf } from './aiProbe.js';
+import { getAvailableJudgeChain, probeSummary, familyOf, liveJudgesFromProbe } from './aiProbe.js';
 import { selectJudge, toFamily } from './judgeSelector.js';
 import { findRepoRoot } from './harnessPaths.js';
 
@@ -67,34 +67,49 @@ async function main() {
         fileContent = fs.readFileSync(args.file, 'utf-8').replace(/^﻿/, '');
     }
 
-    // Цепочка судей фильтруется по preflight-опросу (aiProbe.js) — мёртвые
-    // бинарники не опрашиваются вслепую и не вешают вызов таймаутами.
+    // Phase-2 wiring: dispatch judges via judgeSelector using LIVE judges from the
+    // aiProbe cache. UNVALIDATED must never PASS. Independence is guaranteed by
+    // SESSION ISOLATION (fresh-context subagent), not by family difference — a
+    // same-family isolated judge is valid; cross-family is preferred, not required.
     const workerFam = toFamily(args.workerFamily);
-    const { chain, model, probe, fallback } = await getAvailableJudgeChain({ excludeFamily: args.workerFamily });
-    // Prioritize cross-family, but allow same-family if no cross-family judges are live.
-    const crossFamilyChain = workerFam ? chain.filter(bin => familyOf(bin) !== workerFam) : chain;
-    const strictChain = crossFamilyChain.length > 0 ? crossFamilyChain : chain;
+    const { chain, model, probe, fallback, live_judges = [] } = await getAvailableJudgeChain();
+    // Map tier (1..3) to a criticality level for the selector calculus.
+    const critMap = { 1: 'L0', 2: 'L1', 3: 'L2' };
+    const criticality = critMap[args.tier] || 'L2';
+    const sel = selectJudge({
+        worker_family: args.workerFamily,
+        artifact_kind: 'code',
+        criticality,
+        live_judges: live_judges.length > 0 ? live_judges : [{ id: 'claude-subagent', family: 'anthropic' }]
+    });
+
+    if (sel.decision === 'oracle_only') {
+        console.log('\n✅ УСПЕХ (Tier 1 / L0): deterministic oracle only. LLM judge skipped.');
+        process.exit(0);
+    }
+    if (sel.decision === 'UNVALIDATED') {
+        console.log(`🚨 НЕТ ДОСТУПНЫХ ВНЕШНИХ CLI-СУДЕЙ (preflight): ${probeSummary(probe)}`);
+        console.log(`🛑 UNVALIDATED: ${sel.reason}`);
+        process.exit(3);
+    }
+
+    const chosenIds = sel.judges.map(j => j.id);
+    if (chosenIds.every(id => id === 'claude-subagent')) {
+        console.log(`🚨 НЕТ ДОСТУПНЫХ ВНЕШНИХ CLI-СУДЕЙ (preflight): ${probeSummary(probe)}`);
+        console.log(`➡️ Fallback: используй НЕЗАВИСИМОГО субагента со СВЕЖИМ контекстом как судью. ${sel.reason}`);
+        process.exit(2);
+    }
+    const strictChain = chosenIds.filter(id => id !== 'claude-subagent');
 
     if (fallback || strictChain.length === 0) {
         console.log(`🚨 НЕТ ДОСТУПНЫХ ВНЕШНИХ CLI-СУДЕЙ (preflight): ${probeSummary(probe)}`);
-        // Try the Claude subagent (anthropic) as fallback.
-        const sel = selectJudge({
-            worker_family: args.workerFamily,
-            artifact_kind: 'code',
-            criticality: args.tier,
-            live_judges: [{ id: 'claude-subagent', family: 'anthropic' }]
-        });
-        if (sel.decision === 'UNVALIDATED') {
-            console.log(`🛑 UNVALIDATED: нет доступных ИИ-судей для воркера '${workerFam}'. ${sel.reason}`);
-            process.exit(3);
-        }
-        console.log('➡️ Fallback: используй НЕЗАВИСИМОГО субагента со СВЕЖИМ контекстом как судью (без доступа к текущему диалогу). Самовалидация в том же контексте запрещена.');
-        process.exit(2);
+        console.log('🛑 UNVALIDATED: selector дал пустую CLI-цепочку.');
+        process.exit(3);
     }
 
     const hasSameFamily = strictChain.some(bin => familyOf(bin) === workerFam);
     const desc = hasSameFamily ? 'цепочка с резервом того же семейства' : 'кросс-семейная цепочка';
-    console.log(`🤖 Внешний судья. Живая ${desc} CLI: [${strictChain.join(' → ')}]...`);
+    console.log(`🤖 Внешний судья (selector: ${sel.mode}). Живая ${desc} CLI: [${strictChain.join(' → ')}]...`);
 
     const judged = await callExternalJudge({
         workDir,

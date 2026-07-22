@@ -1,0 +1,12 @@
+{
+  "name": "research-map-reduce",
+  "phases": ["split", "research", "cross_check", "synthesize"],
+  "max_concurrent_workers": 3,
+  "max_workers_per_run": 8,
+  "token_budget": 60000,
+  "worker_phase": "research",
+  "phase_budgets": { "split": 5000, "research": 45000, "cross_check": 5000, "synthesize": 5000 },
+  "allowed_actions": ["read", "cross_check_sources", "synthesize"],
+  "validation": "ai",
+  "writes_code": false
+}

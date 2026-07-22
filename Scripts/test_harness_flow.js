@@ -10,6 +10,9 @@ const __dirname = path.dirname(__filename);
 
 // Тесты герметичны: preflight-опрос CLI-ИИ отключён (без реальных вызовов).
 process.env.HARNESS_PROBE_SKIP = '1';
+// Этот smoke проверяет state machine, а не ручное заполнение отчёта;
+// иначе новый summary-gate скрывает целевую проверку auto-validation.
+process.env.HARNESS_REQUIRE_SUMMARY = '0';
 
 const SCRIPTS_DIR = __dirname;
 const TACTICAL_BASE_DIR = path.resolve(SCRIPTS_DIR, '../../../../..', 'memory/tactical');

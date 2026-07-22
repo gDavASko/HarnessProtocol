@@ -5,6 +5,7 @@ import {
     normalizeNodeId
 } from './harnessState.js';
 import { resolveTaskDir } from './harnessPaths.js';
+import { selectScale } from './scaleGate.js';
 
 // ─── Редактор роадмапа (JSON = источник истины) ──────────────────────────────
 // Человек и ИИ-агент правят роадмап ТОЛЬКО через этот CLI. Он изменяет
@@ -15,6 +16,8 @@ import { resolveTaskDir } from './harnessPaths.js';
 //   node roadmapEdit.js <task_dir> add-node    --id УЗЕЛ-03 --title "..." [--validation ai|auto|human] [--kind code|text] [--strategy X] [--dod "..." ...] [--deliverable path ...]
 //   node roadmapEdit.js <task_dir> set-status  --node УЗЕЛ-02 --status PENDING|IN_PROGRESS|DONE|BLOCKED
 //   node roadmapEdit.js <task_dir> set-dod     --node УЗЕЛ-02 --dod "..." [--dod "..."]
+//   node roadmapEdit.js <task_dir> set-goal    --node УЗЕЛ-02 --outcome "..." --proof "..." [--constraint "..."] [--max-no-progress 2]
+//   node roadmapEdit.js <task_dir> set-scale   --node УЗЕЛ-02 [--parts 3] [--oracle] [--profile readonly-code-audit] [--scale-mode workflow]
 //   node roadmapEdit.js <task_dir> set-field   --node УЗЕЛ-02 [--validation ai] [--kind text] [--strategy X] [--max 5]
 //   node roadmapEdit.js <task_dir> set-current --node УЗЕЛ-02
 //   node roadmapEdit.js <task_dir> list
@@ -26,8 +29,9 @@ function parseArgs() {
         command: args[1],
         id: null, node: null, title: null, status: null,
         validation: null, kind: null, strategy: null, max: null, syncInterval: null,
-        workerFamily: null, tier: null, mode: null,
-        dod: [], deliverables: []
+        workerFamily: null, tier: null, mode: null, criticality: null,
+        dod: [], deliverables: [], outcome: null, proof: null, constraints: [], maxNoProgress: null,
+        parts: 0, oracle: false, profile: null, scaleMode: null
     };
     for (let i = 2; i < args.length; i++) {
         const a = args[i];
@@ -43,6 +47,15 @@ function parseArgs() {
         else if (a === '--worker-family' && args[i + 1]) opts.workerFamily = args[++i].toLowerCase();
         else if (a === '--tier' && args[i + 1]) opts.tier = args[++i].toLowerCase();
         else if (a === '--mode' && args[i + 1]) opts.mode = args[++i].toLowerCase();
+        else if (a === '--criticality' && args[i + 1]) opts.criticality = args[++i].toUpperCase();
+        else if (a === '--outcome' && args[i + 1]) opts.outcome = args[++i];
+        else if (a === '--proof' && args[i + 1]) opts.proof = args[++i];
+        else if (a === '--constraint' && args[i + 1]) opts.constraints.push(args[++i]);
+        else if (a === '--max-no-progress' && args[i + 1]) opts.maxNoProgress = parseInt(args[++i], 10);
+        else if (a === '--parts' && args[i + 1]) opts.parts = parseInt(args[++i], 10);
+        else if (a === '--oracle') opts.oracle = true;
+        else if (a === '--profile' && args[i + 1]) opts.profile = args[++i];
+        else if (a === '--scale-mode' && args[i + 1]) opts.scaleMode = args[++i].toLowerCase();
         else if (a === '--dod' && args[i + 1]) opts.dod.push(args[++i]);
         else if (a === '--deliverable' && args[i + 1]) opts.deliverables.push(args[++i]);
     }
@@ -58,7 +71,7 @@ async function main() {
     const opts = parseArgs();
     const taskDir = resolveTaskDir(opts.taskDir);
     if (!taskDir || !opts.command) {
-        fail('Использование: node roadmapEdit.js <task_dir> <add-node|set-status|set-dod|set-field|set-current|list> [опции]');
+        fail('Использование: node roadmapEdit.js <task_dir> <add-node|set-status|set-dod|set-goal|set-scale|set-field|set-current|list> [опции]');
     }
 
     const roadmap = await readRoadmap(taskDir);
@@ -82,6 +95,7 @@ async function main() {
                 artifact_kind: opts.kind || 'code',
                 worker_family: opts.workerFamily || null,
                 tier: opts.tier || null,
+                criticality: opts.criticality || null,
                 deliverables: opts.deliverables,
                 dod: opts.dod.length > 0
                     ? opts.dod.map(c => ({ criterion: c, done: false }))
@@ -105,6 +119,30 @@ async function main() {
             break;
         }
 
+        case 'set-goal': {
+            const node = requireNode(roadmap, opts.node);
+            if (!opts.outcome || !opts.proof) fail('set-goal требует --outcome и --proof');
+            node.goal = {
+                outcome: opts.outcome,
+                proof: opts.proof,
+                constraints: opts.constraints,
+                max_no_progress: Number.isFinite(opts.maxNoProgress) ? opts.maxNoProgress : undefined,
+                on_limit: 'CRITICAL_FAIL'
+            };
+            break;
+        }
+
+        case 'set-scale': {
+            const node = requireNode(roadmap, opts.node);
+            node.workflow = selectScale(node, {
+                independentParts: opts.parts,
+                hasOracle: opts.oracle,
+                profile: opts.profile,
+                mode: opts.scaleMode
+            });
+            break;
+        }
+
         case 'set-field': {
             const node = requireNode(roadmap, opts.node);
             if (opts.validation) node.validation_type = opts.validation;
@@ -115,6 +153,7 @@ async function main() {
             if (opts.workerFamily) node.worker_family = opts.workerFamily;
             if (opts.tier) node.tier = opts.tier;
             if (opts.mode) node.mode = opts.mode;
+            if (opts.criticality) node.criticality = opts.criticality;
             if (opts.deliverables.length > 0) node.deliverables = opts.deliverables;
             break;
         }
@@ -141,7 +180,7 @@ async function main() {
                 nodes: roadmap.nodes.map(n => ({
                     id: n.id, title: n.title, status: n.status,
                     validation_type: n.validation_type, mode: n.mode, artifact_kind: n.artifact_kind,
-                    strategy: n.strategy, dod_count: n.dod.length
+                    strategy: n.strategy, dod_count: n.dod.length, goal: n.goal, workflow: n.workflow
                 }))
             }, null, 2));
             return;

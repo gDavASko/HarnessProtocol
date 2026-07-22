@@ -1,123 +1,63 @@
-﻿# Model & Reasoning-Effort Selection Rule
+# Reasoning-Effort Selection (Harness copy)
 
-Canonical rule for choosing **which model** and **how hard it reasons** for any
-delegated unit of work (orchestrator turn, subagent, judge, worker). This is the
-single source of truth; every model-selecting skill and system carries a
-self-contained copy of this file and links to its **local** copy, never to a
-shared external path.
+Self-contained copy of the canonical **Model & Reasoning-Effort Selection Rule**
+for the Harness Protocol. Companion to [judge-selection.md](judge-selection.md):
+that file decides *which judge* validates a node; this file decides *how hard each
+agent thinks*. Tier→model ids stay in [harness.config.json](harness.config.json).
 
-> Derived from: Sebastian Raschka, "Controlling Reasoning Effort in LLMs"
-> (magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).
+> Derived from: Sebastian Raschka, "Controlling Reasoning Effort in LLMs".
+> Master copy: `llm-wiki/raw/model-and-reasoning-effort-selection.md`.
 
 ---
 
-## 1. Two orthogonal axes — always set both, explicitly
-
-Model selection is **two independent dials**, not one. Set each on purpose for
-every delegated task; never let one default silently.
+## Two orthogonal axes — set both, explicitly
 
 | Axis | Question | Governed by |
 |:-----|:---------|:------------|
-| **Capability tier** | *Which* model runs the task? (`cheap → medium → high → max → top`) | Model-Tier Doctrine + `HarnessProtocol/config/harness.config.json` |
-| **Reasoning effort** | *How hard* does that model think before answering? (`off → low → medium → high`) | This rule |
+| **Capability tier** | *Which* model? (`cheap → medium → high → max → top`) | `harness.config.json` `agent_roles[*].default_tier` |
+| **Reasoning effort** | *How hard* it thinks? (`off → low → medium → high`) | `harness.config.json` `agent_roles[*].reasoning_effort` + this file |
 
-Capability tier and reasoning effort are decoupled: a top-tier model can run at
-low effort, and a mid-tier model can run at high effort. Choosing well means
-picking the cheapest *(tier × effort)* combination that clears the task's cost of
-error.
+The two dials are decoupled. Pick the cheapest *(tier × effort)* combination that
+clears the node's cost of error.
 
----
+## Core principles
 
-## 2. Core principles (from the article)
+1. Effort is a separate control from capability — decide both.
+2. Diminishing returns: do not default to maximum effort.
+3. A smaller model at higher effort can match a larger model at lower effort;
+   prefer the cheaper combination when it clears the bar.
+4. No reliable auto-selection: assign effort explicitly per role/criticality.
+5. Mechanical / L0 work runs with reasoning **off**.
+6. Hard token budget (`per_role_limits[*].budget_tokens`) is the fail-safe;
+   nodes must tolerate a truncated reasoning trace.
 
-1. **Effort is a separate control from capability.** Treat "which model" and "how
-   much it thinks" as two decisions. The article shows effort implemented via
-   system-prompt conditioning, SFT mode training, RL token-length penalties, and
-   hard inference-time budgets — all independent of model size.
-2. **Diminishing returns — do not default to maximum.** Higher effort raises
-   accuracy but also cost and latency, with sharply diminishing returns at the
-   top. Reserve high effort for high cost-of-error work.
-3. **Small-model-high-effort ≈ big-model-low-effort.** A smaller model at higher
-   reasoning effort can match a larger model at lower effort. When it is cheaper
-   and clears the bar, prefer it.
-4. **No reliable auto-selection — specify effort explicitly.** Automatic effort
-   selection remains aspirational; models do not reliably infer the right depth.
-   Every task class must have an explicitly assigned effort level.
-5. **Provide a hard "reasoning off" for mechanical work.** Trivial/predetermined
-   work should run with reasoning disabled (empty reasoning), paired with graded
-   effort for everything else (toggle = hard switch + soft preference).
-6. **Budget as a fail-safe; degrade gracefully.** Apply a hard token/thinking
-   budget cap as an inference-time safety net, and ensure the task tolerates a
-   truncated reasoning trace without breaking (robustness to externally-imposed
-   limits).
+## Role / criticality → effort (harness roles)
 
----
+| Role / criticality | default_tier | reasoning_effort |
+|:-------------------|:-------------|:-----------------|
+| worker (L0 mechanical / boilerplate) | cheap | **off / low** |
+| judge (L1 standard) | medium | **medium** |
+| evaluator (L2 important) | high | **high** |
+| reasoner (L3 critical / architecture) | max | **high** |
+| researcher (investigation) | max | **high** |
+| manager / orchestrator (planning, control) | top | **medium** (→ high when decomposing a hard problem) |
 
-## 3. Selection procedure
+Hard rules (extend the Model-Tier Doctrine to the effort axis):
+1. NEVER run mechanical work at high effort on a top-tier model.
+2. NEVER validate a critical (L3) result with a weak model at low effort.
 
-For every delegated unit of work:
+## Selection procedure
 
-1. **Classify** the task by criticality / cost of error (`L0–L3`) and role
-   (worker, judge, evaluator, reasoner, researcher, manager, orchestrator).
-2. **Pick the capability tier** from the Model-Tier Doctrine (`harness.config.json`
-   `agent_roles[*].default_tier`). Never run mechanical work on a top tier;
-   never validate a critical result with a weak model.
-3. **Pick the reasoning effort** from the table in §4 (the role/criticality → effort
-   mapping).
-4. **Try the cheaper swap.** Before committing to a big model, check whether a
-   smaller tier at one step higher effort clears the same bar for less. Prefer it
-   when it does (principle 3).
-5. **Cap and protect.** Attach a hard reasoning/token budget as a fail-safe and
-   confirm the task degrades gracefully if the trace is truncated (principle 6).
+1. Classify the node by criticality (`L0–L3`) and role.
+2. Pick `default_tier` from `harness.config.json`.
+3. Pick `reasoning_effort` from the table above.
+4. Try the cheaper swap (smaller tier + one step higher effort) before committing.
+5. Attach the per-role token budget as a fail-safe; confirm graceful truncation.
 
----
+## How to set effort
 
-## 4. Role / criticality → reasoning-effort mapping
-
-`off` = reasoning disabled (empty thinking). `low/medium/high` = graded effort.
-
-| Role / criticality | Capability tier | Reasoning effort | Rationale |
-|:-------------------|:----------------|:-----------------|:----------|
-| **L0** trivial / predetermined / mechanical worker / boilerplate / formatting | cheap | **off** (or minimal) | Deterministic; thinking is wasted cost. |
-| **L1** standard change / single judge | cheap–medium | **low** | Routine; short reasoning suffices. |
-| **L2** important change / evaluator / strong judge | medium–high | **medium** | Real cost of error; needs deliberation. |
-| **L3** critical / architecture / algorithm design / reasoner / quorum judge | max | **high** | Highest cost of error; spend depth here. |
-| **Orchestrator / manager** (planning, control) | top | **medium** default, **high** when decomposing a hard problem | Steady coordination; escalate on genuinely hard planning. |
-| **Researcher** (investigation before implementation) | high–max | **high** | Open-ended search rewards depth. |
-
-Two hard rules carry over from the Model-Tier Doctrine and extend to effort:
-1. **NEVER** run mechanical work at high effort on a top-tier model.
-2. **NEVER** validate a critical (L3) result with a weak model at low effort.
-
----
-
-## 5. How to actually set the effort
-
-Pick whichever control the runtime exposes, in this order of preference:
-
-1. **Native effort / thinking-budget dial** (preferred when available). In this
-   ecosystem the IDE subagents already encode effort by design:
-   - `deep-reasoner` (Opus 4.8) → **high/max** effort — hardest problems.
-   - `reasoning-architect` (Opus 4.7) → **medium** effort — standard design, review.
-   - `fast-worker` (Sonnet 5) → **low** effort — mechanical execution.
-2. **System-prompt conditioning** when there is no native dial: prepend
-   `Reasoning effort: low | medium | high` (or an explicit "answer directly, no
-   reasoning" for `off`) to the task prompt.
-3. **Hard token / thinking budget cap** as the inference-time fail-safe, applied
-   on top of (1) or (2). Keep per-role budgets in `harness.config.json`
-   (`per_role_limits[*].budget_tokens`) aligned with the effort chosen here.
-
----
-
-## 6. Where this rule is enforced
-
-- **Model-Tier Doctrine** — `AGENTS.md` (`Reasoning-Effort Doctrine` subsection).
-- **Harness Protocol** — `HarnessProtocol/config/reasoning-effort-selection.md`
-  (copy), `harness.config.json` (`agent_roles[*].reasoning_effort`), cross-linked
-  from `config/judge-selection.md`.
-- **Skills that select models** each carry a self-contained copy under their own
-  `references/` and describe the principle in `SKILL.md`:
-  `kbpro-subagent-team`, `kbpro-mr-reviewer`, `davasko-harness-dispatcher`.
-
-> Concrete model ids stay machine-owned in `harness.config.json`. This rule
-> governs the *decision procedure* (tier × effort), not the id mapping.
+1. Native effort dial where the runtime exposes it (IDE subagents: `deep-reasoner`
+   = high, `reasoning-architect` = medium, `fast-worker` = low).
+2. Otherwise system-prompt conditioning: prepend `Reasoning effort: low | medium |
+   high` (or "answer directly, no reasoning" for `off`).
+3. Hard `budget_tokens` cap on top, as the inference-time fail-safe.

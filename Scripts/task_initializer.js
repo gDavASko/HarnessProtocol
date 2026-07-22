@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { createInitialRoadmap, writeRoadmap, writeState } from './harnessState.js';
 import { tacticalBase, findRepoRoot } from './harnessPaths.js';
+import { getModelForRole, loadConfig } from './harnessConfig.js';
 
 // Base tactical L2 L2-memory folder anchored from repo root
 const TACTICAL_BASE_DIR = tacticalBase();
@@ -257,8 +258,21 @@ updated_at: ${localDate.toISOString()}
         await fs.writeFile(constraintsPath, UTF8_BOM + constraintsTemplate, 'utf-8');
         await fs.writeFile(toolsPath, UTF8_BOM + toolsTemplate, 'utf-8');
 
-        // Создаем начальный roadmap и state
+        // Создаем начальный roadmap и state.
+        // Phase-2 wiring: read the shared config at init time and stamp the resolved
+        // worker (bin/tier/model) onto every node so downstream stages know which
+        // model the config elected for this role. Config missing/broken → leave nulls.
+        let workerResolved = null;
+        try { workerResolved = getModelForRole('worker'); try { loadConfig(); } catch { /* noop */ } } catch { /* noop */ }
         const initialRoadmap = createInitialRoadmap(taskId, title);
+        if (workerResolved) {
+            for (const node of initialRoadmap.nodes) {
+                node.worker_family = node.worker_family || workerResolved.family;
+                node.tier = node.tier || workerResolved.tier;
+                node.resolved_model = node.resolved_model || workerResolved.model;
+                node.resolved_tier = node.resolved_tier || workerResolved.tier;
+            }
+        }
         await writeRoadmap(taskDir, initialRoadmap, { syncMarkdown: true });
         await writeState(taskDir, {
             stage: 'awaiting_context',

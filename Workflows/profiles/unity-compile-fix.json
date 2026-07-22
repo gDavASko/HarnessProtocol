@@ -1,0 +1,12 @@
+{
+  "name": "unity-compile-fix",
+  "phases": ["diagnose", "fix", "deterministic_validation"],
+  "max_concurrent_workers": 1,
+  "max_workers_per_run": 1,
+  "token_budget": 30000,
+  "worker_phase": "diagnose",
+  "phase_budgets": { "diagnose": 10000, "fix": 10000, "deterministic_validation": 10000 },
+  "allowed_actions": ["read", "write_code", "run_deterministic_validation"],
+  "validation": "auto",
+  "writes_code": true
+}

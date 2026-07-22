@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { checkpoint } from './stateStore.js';
+import { getWorkflowLimits, isKnownWorkflowProfile } from './scaleGate.js';
 
 export const UTF8_BOM = '\ufeff';
 export const ROADMAP_FILE = '.harness_roadmap.json';
@@ -185,12 +186,13 @@ export function normalizeNode(node) {
     const status = normalizeNodeStatus(node.status || 'PENDING');
     const validationType = normalizeValidationType(node.validation_type || 'ai');
 
+    const maxIterations = toInt(node.max_iterations, DEFAULT_MAX_ITERATIONS);
     return {
         id,
         title: String(node.title || id).trim(),
         status,
         iteration: toInt(node.iteration, 0),
-        max_iterations: toInt(node.max_iterations, DEFAULT_MAX_ITERATIONS),
+        max_iterations: maxIterations,
         strategy: node.strategy || 'None',
         validation_type: validationType,
         // F4: 'classic' (cheap deterministic path) | 'harness' (full LLM-judge path).
@@ -200,6 +202,14 @@ export function normalizeNode(node) {
         // ai judge is then chosen from a DIFFERENT family. null = no constraint.
         worker_family: node.worker_family || null,
         tier: node.tier || null,
+        // Phase-2: node criticality drives judgeSelector (L0=oracle-only, L1=medium,
+        // L2=high, L3=quorum). Defaults to deterministic derivation from validation
+        // type when the caller didn't set one explicitly.
+        criticality: normalizeCriticalityLevel(node.criticality, validationType),
+        // Phase-2: resolved model/tier snapshot recorded at initialization time
+        // (task_initializer.js). Purely informational — not used to route calls.
+        resolved_model: node.resolved_model || null,
+        resolved_tier: node.resolved_tier || null,
         // Compact handoff summary (≤~300 tokens) of what this node produced;
         // next-node context is assembled from these, not raw artifacts (B2).
         summary: node.summary || null,
@@ -207,6 +217,8 @@ export function normalizeNode(node) {
         last_error: node.last_error || null,
         deliverables: normalizeDeliverables(node.deliverables),
         dod: normalizeDod(node.dod),
+        goal: normalizeGoal(node.goal, maxIterations),
+        workflow: normalizeWorkflowSelection(node.workflow),
         history: Array.isArray(node.history) ? node.history.map(normalizeHistoryEntry) : []
     };
 }
@@ -435,6 +447,14 @@ export function buildRoadmapMarkdown(roadmap) {
         lines.push(`*   **Стратегия:** \`${node.strategy || 'None'}\``);
         lines.push(`*   **validation_type:** \`${node.validation_type}\``);
         lines.push(`*   **artifact_kind:** \`${node.artifact_kind}\``);
+        if (node.goal) {
+            lines.push(`*   **Цель:** ${node.goal.outcome}`);
+            lines.push(`*   **Доказательство:** \`${node.goal.proof}\``);
+            lines.push(`*   **Остановка без прогресса:** \`${node.goal.max_no_progress}\``);
+        }
+        if (node.workflow) {
+            lines.push(`*   **Режим масштаба:** \`${node.workflow.mode}\`${node.workflow.profile ? ` (${node.workflow.profile})` : ''}`);
+        }
         if (node.last_error) lines.push(`*   **Последний блокер:** ${node.last_error}`);
         if (node.deliverables.length > 0) {
             lines.push(`*   **Артефакты:** ${node.deliverables.map(d => `\`${typeof d === 'string' ? d : d.path}\``).join(', ')}`);
@@ -658,6 +678,21 @@ function normalizeArtifactKind(kind) {
     return value === 'text' ? 'text' : 'code';
 }
 
+// Criticality level (L0..L3) for judge routing. Explicit value wins; otherwise
+// derive from validation_type — auto/deterministic → L0 (oracle only, no LLM),
+// everything else → L1 (standard). Deep-tier or explicit harness mode is
+// escalated at the caller (see deriveCriticality in validator.js).
+export function normalizeCriticalityLevel(value, validationType = 'ai') {
+    if (value === null || value === undefined || value === '') {
+        return validationType === 'auto' ? 'L0' : 'L1';
+    }
+    const s = String(value).toUpperCase();
+    if (['L0', 'L1', 'L2', 'L3'].includes(s)) return s;
+    const n = Number.parseInt(s.replace(/[^0-9]/g, ''), 10);
+    if (n >= 0 && n <= 3) return `L${n}`;
+    return 'L1';
+}
+
 // Порог drift-guard: допустимый диапазон 3-5, дефолт 4.
 function clampSyncInterval(value) {
     const n = Number.parseInt(value, 10);
@@ -674,6 +709,39 @@ function normalizeDod(dod) {
         criterion: String(item.criterion || item.text || '').trim() || 'Без описания',
         done: Boolean(item.done)
     }));
+}
+
+function normalizeGoal(goal, maxIterations) {
+    if (!goal || typeof goal !== 'object') return null;
+    const outcome = String(goal.outcome || '').trim();
+    const proof = String(goal.proof || '').trim();
+    if (!outcome || !proof) return null;
+
+    const maxNoProgress = toInt(goal.max_no_progress, Math.min(2, maxIterations));
+    return {
+        outcome,
+        proof,
+        constraints: Array.isArray(goal.constraints)
+            ? goal.constraints.map(item => String(item).trim()).filter(Boolean)
+            : [],
+        max_no_progress: Math.max(1, Math.min(maxIterations, maxNoProgress)),
+        on_limit: 'CRITICAL_FAIL'
+    };
+}
+
+function normalizeWorkflowSelection(workflow) {
+    if (!workflow || typeof workflow !== 'object') return null;
+    const mode = String(workflow.mode || '').toLowerCase();
+    if (!['classic', 'goal_loop', 'workflow'].includes(mode)) return null;
+    const profile = workflow.profile ? String(workflow.profile).trim() : null;
+    if (mode === 'workflow' && (!profile || !isKnownWorkflowProfile(profile))) return null;
+    return {
+        mode,
+        profile: mode === 'workflow' ? profile : null,
+        reason: workflow.reason ? String(workflow.reason).trim() : null,
+        limits: getWorkflowLimits(mode === 'workflow' ? profile : null),
+        refused: Boolean(workflow.refused)
+    };
 }
 
 function normalizeDeliverables(deliverables) {

@@ -7,11 +7,12 @@
 //
 // Guarantees encoded here:
 //   * L0 (trivial/predefined) -> deterministic oracle only, NO LLM judge.
-//   * A judge must be a DIFFERENT model family than the worker (cross-family rule).
-//     Since claude-subagent's family is 'anthropic', this alone makes a claude
-//     subagent INVALID when the worker is Claude, and VALID when it is agy/codex.
-//   * If no valid cross-family judge is live -> UNVALIDATED (never PASS).
-//   * Optimize by (fit to artifact_kind x criticality), then latency, then cost.
+//   * A judge must be an INDEPENDENT session (fresh-context subagent), never the
+//     worker's own. Independence comes from session isolation, NOT model family: the
+//     same family is allowed (a claude-subagent judges a Claude worker), cross-family
+//     is merely PREFERRED and ranked first.
+//   * If NO judge is live at all -> UNVALIDATED (never PASS).
+//   * Rank cross-family first, then (fit to artifact_kind x criticality), latency, cost.
 
 import { pathToFileURL } from 'url';
 

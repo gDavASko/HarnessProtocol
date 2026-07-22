@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { runCliModel, isBinLikelyAvailable } from './cliTransport.js';
 import { findRepoRoot } from './harnessPaths.js';
 import { readClean } from './harnessState.js';
+import { getJudgePool, familyOfBin as configFamilyOfBin } from './harnessConfig.js';
 
 // ─── Preflight-опрос доступности CLI-ИИ (судей) ──────────────────────────────
 //
@@ -78,9 +79,58 @@ function looksLikeAuthFailure(text) {
 }
 
 // CLI → model family. Used to pick a judge of a DIFFERENT family than the worker
-// (an executor must never be graded by a sibling of its own model).
-export const BIN_FAMILY = { claude: 'anthropic', agy: 'google', gemini: 'google', codex: 'openai' };
-export function familyOf(bin) { return BIN_FAMILY[bin] || 'unknown'; }
+// (an executor must never be graded by a sibling of its own model). Phase-2:
+// the source of truth is harness.config.json; fall back to this table for legacy
+// bins if the config is missing.
+export const BIN_FAMILY = { claude: 'anthropic', 'claude-subagent': 'anthropic', agy: 'google', gemini: 'google', codex: 'openai' };
+export function familyOf(bin) {
+    try {
+        const fromCfg = configFamilyOfBin(bin);
+        if (fromCfg) return fromCfg;
+    } catch { /* fallback below */ }
+    return BIN_FAMILY[bin] || 'unknown';
+}
+
+/**
+ * Phase-2 wiring: convert the probe cache into the shape judgeSelector expects
+ * — array of `{ id, family, cost, latency }` for LIVE judges only. Consumed by
+ * validator/cli-judge to decide which judge grades a node.
+ *
+ * @param {object|null} probe   raw payload from loadProbe/runProbe
+ * @param {object} [opts]
+ * @param {string[]} [opts.poolIds]  only include judges present in this pool
+ * @returns {Array<{id:string,family:string,cost:string,latency:number}>}
+ */
+export function liveJudgesFromProbe(probe, { poolIds = null, includeSubagent = true } = {}) {
+    const pool = poolIds || getJudgePool().map(j => j.id);
+    const allowed = new Set(pool);
+    const out = [];
+    if (probe && probe.results) {
+        for (const [bin, r] of Object.entries(probe.results)) {
+            if (!r || !r.ok) continue;
+            if (!allowed.has(bin)) continue;
+            out.push({
+                id: bin,
+                family: familyOf(bin),
+                cost: r.cost || 'paid',
+                latency: Number.isFinite(r.latency_ms) ? r.latency_ms : Infinity
+            });
+        }
+    }
+    // The IDE subagent is not a probed CLI — it is a "context-fresh" Claude Code
+    // subagent spawned by the orchestrator. Treat it as always LIVE when it is in
+    // the judge pool, so cross-family scenarios can pick it as a valid judge.
+    if (includeSubagent && allowed.has('claude-subagent')
+        && !out.some(j => j.id === 'claude-subagent')) {
+        out.push({
+            id: 'claude-subagent',
+            family: familyOf('claude-subagent'),
+            cost: 'included',
+            latency: 12000
+        });
+    }
+    return out;
+}
 
 function probeFilePath() {
     return path.join(findRepoRoot(), '.harness', 'ai_probe.json');
@@ -250,10 +300,12 @@ export async function getAvailableJudgeChain({ autoProbe = true, maxAgeMs = DEFA
     }
     if (!probe) {
         // Опрос невозможен — работаем как раньше (полная цепочка, риск таймаутов).
-        return { chain: dropFamily(chain), model, probe: null, fallback: false };
+        return { chain: dropFamily(chain), model, probe: null, fallback: false, live_judges: [] };
     }
     const available = dropFamily(chain.filter(bin => probe.results[bin]?.ok));
-    return { chain: available, model, probe, fallback: available.length === 0 };
+    // Phase-2: also emit the live-judges list in the shape judgeSelector consumes.
+    const live_judges = liveJudgesFromProbe(probe);
+    return { chain: available, model, probe, fallback: available.length === 0, live_judges };
 }
 
 /** Короткая сводка для вывода в контекст/логи. */

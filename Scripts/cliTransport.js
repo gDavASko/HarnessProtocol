@@ -6,6 +6,7 @@ import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { resolveTmp, findRepoRoot } from './harnessPaths.js';
+import { resolveModelForBin, getLimits } from './harnessConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,9 +123,12 @@ const TRANSPORTS = {
         })
     },
     agy: {
-        mode: 'file_out_instruct',
+        // agy print mode returns its answer on stdout. Requiring it to write an
+        // output file conflicts with the read-only headless permission policy.
+        mode: 'stdout',
+        input_file_prompt: true,
         // Короткая ASCII-инструкция в -p (только пути), тяжёлый контент — в IN-файле.
-        // Judge is read-only: run in --sandbox (terminal restrictions), NOT
+        // Worker/judge is read-only: run in --sandbox (terminal restrictions), NOT
         // --dangerously-skip-permissions.
         build: ({ model, instruction, workDir }) => {
             const docDir = path.resolve(findRepoRoot(), 'Assets/KBPro/kbpro-ai-docs');
@@ -307,15 +311,20 @@ export async function runCliModel({ bin, workDir, systemText = '', userText = ''
         let input = null;
         let instruction = null;
 
-        if (transport.mode === 'file_out_instruct') {
+        if (transport.mode === 'file_out_instruct' || transport.input_file_prompt) {
             // Полный промпт + указание записать ответ в OUT — в IN-файл.
-            const inBody = `${combined}\n\n---\n` +
+            let inBody = `${combined}\n\n---\n` +
                 `ВАЖНО: Запиши ТОЛЬКО итоговый ответ в файл: ${outFile}\n` +
                 `Последней строкой файла добавь маркер: ${SENTINEL}\n` +
                 `Не задавай уточняющих вопросов.`;
+            if (transport.input_file_prompt) {
+                inBody = `${combined}\n\n---\nIMPORTANT: Return only the final answer to stdout. Do not ask questions.`;
+            }
             await fs.writeFile(inFile, inBody, 'utf-8');
             // В argv идёт короткая ASCII-инструкция — только пути, без контента.
-            instruction = `Read task from file: ${inFile} . Write only the final answer to file: ${outFile} . End that file with the marker line ${SENTINEL} . Do not ask questions.`;
+            instruction = transport.input_file_prompt
+                ? `Read task from file: ${inFile} . Return only the final answer to stdout. Do not ask questions.`
+                : `Read task from file: ${inFile} . Write only the final answer to file: ${outFile} . End that file with the marker line ${SENTINEL} . Do not ask questions.`;
         } else {
             // Режимы A/C: полный промпт по stdin.
             input = combined;
@@ -373,7 +382,16 @@ export async function runCliModel({ bin, workDir, systemText = '', userText = ''
  * @param {number} [opts.timeoutMs]
  * @returns {Promise<{ok:boolean, text?:string, bin?:string, error?:string, attempts:Array}>}
  */
-export async function callExternalJudge({ workDir, systemText, userText, chain = EMERGENCY_JUDGE_CHAIN, model = null, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function callExternalJudge({ workDir, systemText, userText, chain = EMERGENCY_JUDGE_CHAIN, model = null, timeoutMs = null, role = 'judge' }) {
+    // Phase-2 wiring: if the caller did not pass an explicit timeout, use the per-role
+    // limit from harness.config.json (falls back to DEFAULT_TIMEOUT_MS when config is
+    // missing/broken so the pre-phase-2 behavior is preserved).
+    if (timeoutMs == null) {
+        try {
+            const lim = getLimits(role);
+            timeoutMs = (lim && Number.isFinite(lim.timeout_ms) && lim.timeout_ms > 0) ? lim.timeout_ms : DEFAULT_TIMEOUT_MS;
+        } catch { timeoutMs = DEFAULT_TIMEOUT_MS; }
+    }
     // Sequential first-alive-wins: the full prompt goes to ONE judge at a time in
     // chain order; on the first valid verdict we stop. Only one verdict is ever used,
     // so parallel fan-out would just duplicate the prompt tokens across every judge.
@@ -393,6 +411,36 @@ export async function callExternalJudge({ workDir, systemText, userText, chain =
         }
     }
     return { ok: false, error: 'Все CLI-судьи недоступны или завершились с ошибкой', attempts };
+}
+
+/**
+ * Вызывает ОДНОГО конкретного судью (без цепочки/fallback). Используется L3-квoрумом
+ * и dual_order-режимом, где selectJudge уже выбрал конкретных судей и мы должны
+ * запустить КАЖДОГО из них, а не «первый живой». Возвращает тот же shape, что и
+ * runCliModel, плюс поля bin/role для агрегатора.
+ * @param {object} opts
+ * @param {string} opts.bin
+ * @param {string} opts.workDir
+ * @param {string} opts.systemText
+ * @param {string} opts.userText
+ * @param {string|null} [opts.model]
+ * @param {number|null} [opts.timeoutMs]
+ * @param {string} [opts.role='judge']
+ * @returns {Promise<{ok:boolean, text?:string, bin:string, error?:string}>}
+ */
+export async function callSingleJudge({ workDir, systemText, userText, bin, model = null, timeoutMs = null, role = 'judge' }) {
+    if (timeoutMs == null) {
+        try {
+            const lim = getLimits(role);
+            timeoutMs = (lim && Number.isFinite(lim.timeout_ms) && lim.timeout_ms > 0) ? lim.timeout_ms : DEFAULT_TIMEOUT_MS;
+        } catch { timeoutMs = DEFAULT_TIMEOUT_MS; }
+    }
+    const useModel = (bin === 'agy' || bin === 'gemini') ? model : null;
+    try {
+        return await runCliModel({ bin, workDir, systemText, userText, model: useModel, timeoutMs });
+    } catch (err) {
+        return { ok: false, bin, error: err.message };
+    }
 }
 
 /**
@@ -420,11 +468,23 @@ export function isBinLikelyAvailable(bin) {
 
 // Tier → concrete model (B3). claude uses aliases haiku/sonnet/opus; other CLIs
 // fall back to their account default (null) until per-account mapping is set.
+// Legacy fallback table kept for backward-compat with the old (bin,tier) space
+// (mechanical/standard/deep). Phase-2: the authoritative mapping now comes from
+// harness.config.json via resolveModelForBin(bin, tier). The legacy tiers are
+// mapped to the config-native ones (cheap/medium/max) before lookup.
 export const TIER_MODEL = {
     claude: { mechanical: 'haiku', standard: 'sonnet', deep: 'opus' }
 };
+const LEGACY_TIER_MAP = { mechanical: 'cheap', standard: 'medium', deep: 'max' };
 export function modelForTier(bin, tier) {
     if (!tier) return null;
+    const configTier = LEGACY_TIER_MAP[tier] || tier;
+    // Config-first (phase 2 wiring); fall back to legacy alias table if config
+    // provides no variant for this bin/tier. Never crash on config errors.
+    try {
+        const fromConfig = resolveModelForBin(bin, configTier);
+        if (fromConfig) return fromConfig;
+    } catch { /* config path is best-effort — legacy behavior preserved */ }
     return (TIER_MODEL[bin] && TIER_MODEL[bin][tier]) || null;
 }
 export function estimateTokens(text) {
@@ -458,7 +518,19 @@ async function saveSessionRegistry(taskDir, reg) {
  * с МИНИМАЛЬНОЙ преамбулой (тяжёлые правила и так лежат на диске в AGENTS.md).
  * @returns {Promise<{ok:boolean, text?:string, bin:string, error?:string, resumed:boolean, sessionId:string|null, delta:boolean}>}
  */
-export async function runWorkerTurn({ taskDir, bin, runId = 'default', systemText = '', userText = '', model = null, tier = 'standard', budgetTokens = null, dryRun = false, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function runWorkerTurn({ taskDir, bin, runId = 'default', systemText = '', userText = '', model = null, tier = 'standard', budgetTokens = null, dryRun = false, timeoutMs = null, role = 'worker' }) {
+    // Phase-2 wiring: pull per-role limits from harness.config.json when the caller
+    // didn't override them explicitly. Config missing/broken → fall back to old
+    // hard-coded defaults so nothing regresses.
+    let roleLimits = null;
+    try { roleLimits = getLimits(role); } catch { /* fallback below */ }
+    if (timeoutMs == null) {
+        timeoutMs = (roleLimits && Number.isFinite(roleLimits.timeout_ms) && roleLimits.timeout_ms > 0)
+            ? roleLimits.timeout_ms : DEFAULT_TIMEOUT_MS;
+    }
+    if (budgetTokens == null && roleLimits && Number.isFinite(roleLimits.budget_tokens) && roleLimits.budget_tokens > 0) {
+        budgetTokens = roleLimits.budget_tokens;
+    }
     const reg = await loadSessionRegistry(taskDir);
     reg.runs = reg.runs || {};
     const run = reg.runs[runId] = reg.runs[runId] || { sessions: {} };

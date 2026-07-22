@@ -40,8 +40,9 @@ Launched by the autonomous `strategyEngine` (Evaluator-Optimizer inner loop) and
 `syncCheck.js` (drift-guard, every `sync_interval` closed nodes). Never validates its
 own generator's output within the same context.
 
-## Cross-family constraints (MANDATORY)
-Same as Judge: MUST differ in family from the generator/Worker it evaluates. A
-claude-subagent Evaluator is valid only when the evaluated Worker is NOT Claude.
-When no valid cross-family Evaluator is live, the loop cannot certify progress — treat
-as `UNVALIDATED`, do not silently accept.
+## Isolation constraints (MANDATORY)
+Same as Judge: the Evaluator MUST run in an independent, fresh-context session — never the
+generator/Worker's own. The same model family is allowed (a claude-subagent Evaluator is
+valid for a Claude Worker if isolated); cross-family is preferred, not mandatory. When NO
+independent Evaluator is live at all, the loop cannot certify progress — treat as
+`UNVALIDATED`, do not silently accept.

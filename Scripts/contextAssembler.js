@@ -58,6 +58,7 @@ async function modeInit(taskDir) {
         })),
         current_node: toContextNode(current),
         dod: current ? current.dod : [],
+        goal: current ? current.goal : null,
         constraints_digest: constraints.digest,
         tools_available: tools,
         human_notes: master.humanNotes,
@@ -105,6 +106,7 @@ async function modeStep(taskDir) {
         mode: 'step',
         current_node: toContextNode(current),
         dod: current ? current.dod : [],
+        goal: current ? current.goal : null,
         previous_result: previousResult,
         // Handoff from DONE nodes = their compact SUMMARYs, not raw artifacts (B2).
         // Full artifacts stay on disk and are pulled only on explicit request.

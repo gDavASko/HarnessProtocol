@@ -67,13 +67,14 @@
     "providers": {}
   },
 
+  "_reasoning_effort_comment": "Second selection axis, orthogonal to default_tier: how hard the chosen model thinks (off|low|medium|high). Set explicitly per role — automatic effort selection is unreliable. See config/reasoning-effort-selection.md for the full calculus.",
   "agent_roles": {
-    "worker":     { "default_tier": "cheap", "allowed_tiers": ["cheap", "medium"], "reasoning_effort": "low", "families": ["claude", "agy", "codex", "claude-subagent"] },
-    "judge":      { "default_tier": "medium", "allowed_tiers": ["medium", "high", "max"], "reasoning_effort": "medium", "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
-    "evaluator":  { "default_tier": "high", "allowed_tiers": ["medium", "high", "max"], "reasoning_effort": "high", "families": ["agy", "codex", "claude-subagent"], "cross_family_required": true, "read_only": true },
-    "reasoner":   { "default_tier": "max", "allowed_tiers": ["max"], "reasoning_effort": "high", "families": ["claude", "agy", "codex"] },
-    "researcher": { "default_tier": "max", "allowed_tiers": ["high", "max"], "reasoning_effort": "high", "families": ["claude", "agy", "codex"] },
-    "manager":    { "default_tier": "top", "allowed_tiers": ["top", "max"], "reasoning_effort": "medium", "families": ["claude", "agy", "codex"] }
+    "worker":     { "default_tier": "cheap", "reasoning_effort": "low", "allowed_tiers": ["cheap", "medium"], "families": ["claude", "agy", "codex", "claude-subagent"] },
+    "judge":      { "default_tier": "medium", "reasoning_effort": "medium", "allowed_tiers": ["medium", "high", "max"], "families": ["agy", "codex", "claude-subagent"], "cross_family_preferred": true, "read_only": true },
+    "evaluator":  { "default_tier": "high", "reasoning_effort": "high", "allowed_tiers": ["medium", "high", "max"], "families": ["agy", "codex", "claude-subagent"], "cross_family_preferred": true, "read_only": true },
+    "reasoner":   { "default_tier": "max", "reasoning_effort": "high", "allowed_tiers": ["max"], "families": ["claude", "agy", "codex"] },
+    "researcher": { "default_tier": "max", "reasoning_effort": "high", "allowed_tiers": ["high", "max"], "families": ["claude", "agy", "codex"] },
+    "manager":    { "default_tier": "top", "reasoning_effort": "medium", "allowed_tiers": ["top", "max"], "families": ["claude", "agy", "codex"] }
   },
 
   "judge_pool": [
@@ -89,6 +90,9 @@
     "L2": { "judge": "single", "tier": "high", "note": "important -> one strong cross-family judge." },
     "L3": { "judge": "quorum", "tier": "max", "note": "critical/high-cost-of-error -> strong judge + quorum or dual-order." }
   },
+
+  "quorum_policy": "all",
+  "_quorum_policy_comment": "How to combine per-judge verdicts in L3 quorum/dual_order mode. 'all' = every quorum member must PASS (fail-closed, recommended for L3). 'majority' = more than half must PASS. Any errored/unreachable judge that leaves fewer valid verdicts than required always downgrades to UNVALIDATED, never PASS.",
 
   "per_role_limits": {
     "worker":     { "timeout_ms": 120000, "retries": 1, "budget_tokens": 60000 },

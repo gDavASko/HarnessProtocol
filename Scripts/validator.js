@@ -3,9 +3,10 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
-import { callExternalJudge } from './cliTransport.js';
-import { getAvailableJudgeChain, probeSummary, familyOf } from './aiProbe.js';
+import { callExternalJudge, callSingleJudge } from './cliTransport.js';
+import { getAvailableJudgeChain, probeSummary, familyOf, liveJudgesFromProbe } from './aiProbe.js';
 import { selectJudge, toFamily } from './judgeSelector.js';
+import { getJudgePool, getQuorumPolicy } from './harnessConfig.js';
 import { findRepoRoot } from './harnessPaths.js';
 import {
     UTF8_BOM,
@@ -27,13 +28,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Контент идёт в файл/stdin (не в argv), но усечение защищает контекст модели.
 const MAX_EVIDENCE_CHARS = 100000;
 
-// F5: derive a node's criticality for judge selection. Explicit node.criticality
-// wins; otherwise map from tier/mode (deep/harness -> more critical). Defaults L1.
+// F5 + Phase-2: derive a node's criticality for judge selection. Explicit
+// node.criticality wins; otherwise map from tier/mode/validation_type. Auto/
+// deterministic-oracle nodes default to L0 (no LLM judge). AI/harness nodes
+// default to L1. Deep tier → L3, harness mode → L2.
 function deriveCriticality(node) {
-    if (node && node.criticality) return node.criticality;
+    if (node && node.criticality) return String(node.criticality).toUpperCase();
     const tier = (node && node.tier) || '';
-    if (tier === 'deep') return 'L3';
+    if (tier === 'deep' || tier === 'max' || tier === 'top') return 'L3';
     if (node && node.mode === 'harness') return 'L2';
+    if (node && node.validation_type === 'auto') return 'L0';
     return 'L1';
 }
 
@@ -447,6 +451,114 @@ function tryFixJson(text) {
     return null;
 }
 
+// ── L3 quorum / dual_order helpers (F-quorum) ────────────────────────────────
+//
+// judgeSelector returns {mode:'single'|'quorum'|'dual_order', judges:[...]}. For
+// L3 the selector chooses quorum (2 cross-family judges) or dual_order (1 judge,
+// two orderings) — we MUST honor it and NOT early-exit on the first passing
+// judge (that was the RUN3 N6 bug: single-judge assurance for critical nodes).
+//
+// Policy (default 'all', fail-closed):
+//   * quorum   : run EVERY selected judge (parallel, each with its own timeout).
+//                Combine per config quorum_policy ('all'|'majority').
+//                Any judge that errors/times-out is NOT a valid verdict — if
+//                that leaves fewer valid verdicts than required, overall is
+//                UNVALIDATED (never PASS on the single answer that came back).
+//   * dual_order: same judge invoked TWICE with the two evidence/DoD orderings
+//                swapped; BOTH must PASS for overall PASS (mitigates position
+//                bias when only one family is live).
+//   * single   : existing chain-based path (chosen chain length == 1).
+
+/**
+ * Parse a raw judge JSON reply into a normalized verdict record.
+ * Enforces the "bare PASS without evidence -> FAIL" rule already present in
+ * the single-judge path, so quorum members can't sneak an unjustified PASS in.
+ * @returns {{verdict:'PASS'|'FAIL'|'PARSE_ERROR', evidence:string[], errors:string[], dodResults:Array|null, raw:string}}
+ */
+export function parseJudgeVerdict(rawText) {
+    const parsed = tryFixJson(rawText);
+    if (!parsed) {
+        return { verdict: 'PARSE_ERROR', evidence: [], errors: ['unparseable JSON'], dodResults: null, raw: rawText };
+    }
+    const evidence = Array.isArray(parsed.evidence)
+        ? parsed.evidence.filter(e => typeof e === 'string' && e.trim().length > 0)
+        : [];
+    const errors = Array.isArray(parsed.errors) ? parsed.errors.filter(Boolean) : [];
+    const dodResults = Array.isArray(parsed.dod_results) ? parsed.dod_results : null;
+    if (parsed.pass === true) {
+        if (evidence.length === 0) {
+            // Bare PASS without any cited evidence — reject exactly as the
+            // single-judge path does.
+            return { verdict: 'FAIL', evidence, errors: ['PASS отклонён: не приведено ни одной цитаты-доказательства (evidence).'], dodResults, raw: rawText };
+        }
+        return { verdict: 'PASS', evidence, errors, dodResults, raw: rawText };
+    }
+    return { verdict: 'FAIL', evidence, errors, dodResults, raw: rawText };
+}
+
+/**
+ * Combine per-judge verdicts into an overall decision.
+ * @param {Array<{bin:string, ok:boolean, verdict:'PASS'|'FAIL'|'PARSE_ERROR'|'ERROR', error?:string, evidence?:string[], errors?:string[], dodResults?:Array|null}>} perJudge
+ * @param {number} requiredCount   how many valid verdicts we planned for (quorum size or 2 for dual_order)
+ * @param {'all'|'majority'} policy
+ * @returns {{overall:'PASS'|'FAIL'|'UNVALIDATED', reason:string, dodResults:Array|null}}
+ */
+export function combineQuorumVerdicts(perJudge, requiredCount, policy = 'all') {
+    const valid = perJudge.filter(v => v && (v.verdict === 'PASS' || v.verdict === 'FAIL'));
+    if (valid.length < requiredCount) {
+        return {
+            overall: 'UNVALIDATED',
+            reason: `insufficient valid verdicts: ${valid.length}/${requiredCount} (errored: ${perJudge.length - valid.length})`,
+            dodResults: null
+        };
+    }
+    const passes = valid.filter(v => v.verdict === 'PASS').length;
+    const fails = valid.length - passes;
+    let overall;
+    let reason;
+    if (policy === 'majority') {
+        overall = passes > (valid.length / 2) ? 'PASS' : 'FAIL';
+        reason = `policy=majority: ${passes} pass / ${fails} fail of ${valid.length}`;
+    } else {
+        // fail-closed 'all': any FAIL flips overall to FAIL.
+        overall = fails === 0 ? 'PASS' : 'FAIL';
+        reason = `policy=all: ${passes} pass / ${fails} fail of ${valid.length}`;
+    }
+    // Merge dod_results conservatively: for PASS overall, all judges agreed;
+    // adopt the first judge's dod_results as canonical. For FAIL, adopt the
+    // first FAILing judge's dod_results (its criticism is what caused the fail).
+    let dodResults = null;
+    if (overall === 'PASS') {
+        const first = valid.find(v => v.dodResults);
+        dodResults = first ? first.dodResults : null;
+    } else if (overall === 'FAIL') {
+        const firstFail = valid.find(v => v.verdict === 'FAIL' && v.dodResults);
+        dodResults = firstFail ? firstFail.dodResults : null;
+    }
+    return { overall, reason, dodResults };
+}
+
+/**
+ * Swap the ordering of DoD-criteria and evidence sections in the judge user
+ * prompt (dual_order). Falls back to the original text if the markers aren't
+ * found (never crash).
+ */
+export function swapUserTextOrder(userText) {
+    if (!userText || typeof userText !== 'string') return userText;
+    const critIdx = userText.indexOf('КРИТЕРИИ DoD');
+    // The evidence label varies ('ФАКТИЧЕСКИЕ ИЗМЕНЕНИЯ' or 'СОДЕРЖИМОЕ АРТЕФАКТОВ');
+    // both are followed by ':' at a section boundary. Find the last section
+    // start (evidence section) and swap it with the criteria section.
+    const evIdxA = userText.indexOf('\nФАКТИЧЕСКИЕ ИЗМЕНЕНИЯ');
+    const evIdxB = userText.indexOf('\nСОДЕРЖИМОЕ АРТЕФАКТОВ');
+    const evIdx = evIdxA >= 0 ? evIdxA : evIdxB;
+    if (critIdx < 0 || evIdx < 0 || evIdx <= critIdx) return userText;
+    const head = userText.slice(0, critIdx);
+    const criteria = userText.slice(critIdx, evIdx).trimEnd();
+    const evidence = userText.slice(evIdx).trimStart();
+    return `${head}${evidence}\n\n${criteria}\n`;
+}
+
 // AI-валидация всегда идёт через НЕЗАВИСИМОГО судью. Приоритет — внешний CLI-ИИ.
 // Цепочка судей фильтруется по preflight-опросу (aiProbe.js): мёртвые бинарники
 // не опрашиваются вслепую и не вешают цикл таймаутами. Если живых внешних судей
@@ -456,25 +568,151 @@ function tryFixJson(text) {
 async function runAiValidation(taskDir, node) {
     const { systemText, userText } = await buildJudgePrompt(taskDir, node);
 
-    // A judge must not be a sibling of the executor's own model family.
-    const workerFam = toFamily(node.worker_family);
-    const { chain, model, probe, fallback } = await getAvailableJudgeChain({ excludeFamily: node.worker_family || null });
-    // Prioritize cross-family, but allow same-family if no cross-family judges are live.
-    const crossFamilyChain = workerFam ? chain.filter(bin => familyOf(bin) !== workerFam) : chain;
-    const strictChain = crossFamilyChain.length > 0 ? crossFamilyChain : chain;
-    if (fallback || strictChain.length === 0) {
+    // Phase-2 wiring: dispatch judges via judgeSelector using LIVE judges from the
+    // probe. L0 nodes never reach the LLM judge. UNVALIDATED must never PASS.
+    const criticality = deriveCriticality(node);
+    const { chain, model, probe, fallback, live_judges = [] } = await getAvailableJudgeChain();
+
+    // L0 short-circuit: deterministic oracle is the verdict — no LLM judge. If we
+    // reached runAiValidation for an L0 node, the caller did not provide an oracle
+    // (--cmd). Return a synthetic verdict that marks the node UNVALIDATED without
+    // spending judge tokens.
+    if (criticality === 'L0') {
         return {
-            overall: null,
-            fallback_required: true,
+            overall: 'UNVALIDATED',
+            oracle_only: true,
+            probe_summary: probeSummary(probe),
+            comment: 'L0: deterministic oracle required (compile/test) — no LLM judge invoked. Provide --cmd or lower criticality.'
+        };
+    }
+
+    // Isolation doctrine: the judge is an INDEPENDENT session (fresh-context
+    // subagent), never the worker's own session. It MAY be the same model family —
+    // cross-family is preferred (the selector ranks it first) but not mandatory.
+    // Pass the full live pool; the selector prefers cross-family and falls back to a
+    // same-family isolated judge, returning UNVALIDATED only when no judge is live.
+    const selection = selectJudge({
+        worker_family: node.worker_family,
+        artifact_kind: node.artifact_kind,
+        criticality,
+        live_judges
+    });
+
+    if (selection.decision === 'UNVALIDATED') {
+        return {
+            overall: 'UNVALIDATED',
+            selection_reason: selection.reason,
+            probe_summary: probeSummary(probe),
+            comment: `Судьи не выбраны (${selection.reason}). Проба: ${probeSummary(probe)}`
+        };
+    }
+    if (selection.decision === 'oracle_only') {
+        return {
+            overall: 'UNVALIDATED',
+            oracle_only: true,
+            probe_summary: probeSummary(probe),
+            comment: 'oracle_only selection but no deterministic oracle configured for this node.'
+        };
+    }
+
+    // Selector chose specific judges — honor its ordering EXACTLY. Do not fall back
+    // to the wider chain, do not add extras. If the chosen judge is not live in the
+    // probe cache (should not happen because live_judges is derived from probe),
+    // callExternalJudge will report the failure and we mark UNVALIDATED.
+    const chosenChain = selection.judges.map(j => j.id).filter(Boolean);
+    if (chosenChain.length === 0) {
+        return {
+            overall: 'UNVALIDATED',
+            selection_reason: 'judgeSelector returned no judges',
             probe_summary: probeSummary(probe)
         };
     }
+    // Special case: claude-subagent is an IDE subagent, not a CLI. If the selector
+    // picked it, route to the manual subagent-fallback path (writes ai_judge_task.md,
+    // human/IDE feeds the verdict back via --judge-file). This is the SAME code path
+    // as the legacy fallback_required branch.
+    if (chosenChain.every(id => id === 'claude-subagent')) {
+        return {
+            overall: null,
+            fallback_required: true,
+            probe_summary: probeSummary(probe),
+            selection_reason: selection.reason
+        };
+    }
+    // Drop non-CLI judges from the chain we hand to callExternalJudge (it can only
+    // spawn actual CLI binaries). Same-family or non-CLI mixed into the chain would
+    // waste attempts.
+    const cliChain = chosenChain.filter(id => id !== 'claude-subagent');
     // Shorter default per-call timeout for judges + bounded retry (max 2 attempts).
-    const timeoutMs = parseInt(process.env.HARNESS_JUDGE_TIMEOUT_MS, 10) || 60000;
+    const timeoutMs = parseInt(process.env.HARNESS_JUDGE_TIMEOUT_MS, 10) || null;
+
+    // ── L3 quorum (F-quorum): run ALL selected judges (parallel), combine fail-closed.
+    if (selection.mode === 'quorum' && cliChain.length >= 2) {
+        const policy = getQuorumPolicy();
+        const requiredCount = cliChain.length;
+        const invocations = await Promise.all(cliChain.map(async bin => {
+            const res = await callSingleJudge({ workDir: taskDir, systemText, userText, bin, model, timeoutMs, role: 'judge' });
+            if (!res.ok) {
+                return { bin, ok: false, verdict: 'ERROR', error: res.error || 'unknown error' };
+            }
+            const parsed = parseJudgeVerdict(res.text);
+            return { bin, ok: true, verdict: parsed.verdict, evidence: parsed.evidence, errors: parsed.errors, dodResults: parsed.dodResults, raw: parsed.raw };
+        }));
+        const combined = combineQuorumVerdicts(invocations, requiredCount, policy);
+        const perJudgeLog = invocations.map(v => v.ok
+            ? `${v.bin}=${v.verdict}${v.verdict === 'PASS' && v.evidence?.length ? ' [' + v.evidence.slice(0, 1).join('') + ']' : ''}${v.verdict === 'FAIL' && v.errors?.length ? ' (' + v.errors.slice(0, 1).join('') + ')' : ''}`
+            : `${v.bin}=ERROR (${v.error})`).join(' | ');
+        const comment = combined.overall === 'UNVALIDATED'
+            ? `Судья [quorum ${cliChain.join('+')}]: ${combined.reason}. Per-judge: ${perJudgeLog}`
+            : combined.overall === 'PASS'
+                ? `Судья [quorum ${cliChain.join('+')}]: PASS (${combined.reason}). Per-judge: ${perJudgeLog}`
+                : `Судья [quorum ${cliChain.join('+')}]: FAIL (${combined.reason}). Per-judge: ${perJudgeLog}`;
+        return {
+            overall: combined.overall,
+            dod_results: combined.dodResults,
+            comment,
+            judge_verdicts: invocations
+        };
+    }
+
+    // ── L3 dual_order (single judge, two orderings): both must PASS.
+    if (selection.mode === 'dual_order' && cliChain.length >= 1) {
+        const bin = cliChain[0];
+        const userTextA = userText;
+        const userTextB = swapUserTextOrder(userText);
+        const [ra, rb] = await Promise.all([
+            callSingleJudge({ workDir: taskDir, systemText, userText: userTextA, bin, model, timeoutMs, role: 'judge' }),
+            callSingleJudge({ workDir: taskDir, systemText, userText: userTextB, bin, model, timeoutMs, role: 'judge' })
+        ]);
+        const invocations = [ra, rb].map((res, i) => {
+            const label = `${bin}#${i === 0 ? 'A' : 'B'}`;
+            if (!res.ok) return { bin: label, ok: false, verdict: 'ERROR', error: res.error || 'unknown error' };
+            const parsed = parseJudgeVerdict(res.text);
+            return { bin: label, ok: true, verdict: parsed.verdict, evidence: parsed.evidence, errors: parsed.errors, dodResults: parsed.dodResults, raw: parsed.raw };
+        });
+        // dual_order is ALWAYS all-must-PASS (fail-closed), independent of quorum_policy.
+        const combined = combineQuorumVerdicts(invocations, 2, 'all');
+        const perJudgeLog = invocations.map(v => v.ok
+            ? `${v.bin}=${v.verdict}`
+            : `${v.bin}=ERROR (${v.error})`).join(' | ');
+        const comment = combined.overall === 'UNVALIDATED'
+            ? `Судья [dual_order ${bin}]: ${combined.reason}. Per-order: ${perJudgeLog}`
+            : combined.overall === 'PASS'
+                ? `Судья [dual_order ${bin}]: PASS обе перестановки. Per-order: ${perJudgeLog}`
+                : `Судья [dual_order ${bin}]: FAIL (${combined.reason}). Per-order: ${perJudgeLog}`;
+        return {
+            overall: combined.overall,
+            dod_results: combined.dodResults,
+            comment,
+            judge_verdicts: invocations
+        };
+    }
+
+    // ── L1/L2 single-judge path (unchanged: chain of length 1 + one retry).
     let judged = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
         judged = await callExternalJudge({
-            workDir: taskDir, systemText, userText, chain: strictChain, model, timeoutMs
+            workDir: taskDir, systemText, userText, chain: cliChain, model, timeoutMs, role: 'judge'
         });
         if (judged.ok) break;
     }

@@ -43,10 +43,10 @@ Launched by `validator.js --type ai` (via `cliTransport`) or, when no external C
 judge is live, as an INDEPENDENT fresh-context IDE subagent (`--judge-file` fallback).
 Selection is delegated to `judgeSelector.js`.
 
-## Cross-family constraints (MANDATORY)
-- A Judge MUST be of a DIFFERENT model family than the Worker (`excludeFamily =
-  worker_family`).
-- A **claude-subagent** is a VALID cross-family Judge ONLY when the Worker is NOT
-  Claude (i.e. worker family is google/openai). When the Worker IS Claude, a
-  claude-subagent is the SAME family and is INVALID as a Judge.
-- If no valid cross-family Judge is live, the node is `UNVALIDATED` — never PASS.
+## Isolation constraints (MANDATORY)
+- A Judge MUST run in an INDEPENDENT, fresh-context session — never the Worker's own
+  session. Independence comes from session isolation, not from model family.
+- The SAME model family is allowed: a **claude-subagent** is a VALID Judge for a Claude
+  Worker as long as it is a separate isolated subagent. Cross-family is PREFERRED (the
+  selector ranks it first) but not mandatory.
+- If NO independent Judge is live at all, the node is `UNVALIDATED` — never PASS.

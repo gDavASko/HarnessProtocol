@@ -1,0 +1,12 @@
+{
+  "name": "safe-migration",
+  "phases": ["inventory", "pilot", "deterministic_validation", "batch"],
+  "max_concurrent_workers": 3,
+  "max_workers_per_run": 8,
+  "token_budget": 120000,
+  "worker_phase": "inventory",
+  "phase_budgets": { "inventory": 30000, "pilot": 30000, "deterministic_validation": 30000, "batch": 30000 },
+  "allowed_actions": ["read", "write_code", "run_deterministic_validation"],
+  "validation": "auto",
+  "writes_code": true
+}

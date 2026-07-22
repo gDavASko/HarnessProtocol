@@ -11,6 +11,7 @@ import {
     getNode,
     fileExists
 } from './harnessState.js';
+import { getLimits } from './harnessConfig.js';
 
 // ─── Измеритель токеновой экономии contextAssembler ──────────────────────────
 // Сравнивает объём контекста, который агент получил бы «наивно» (прочитав все
@@ -88,14 +89,29 @@ async function measureNaive(taskDir) {
 export function usageLogPath() {
     return path.join(findRepoRoot(), '.harness_logs', 'usage.jsonl');
 }
-export async function recordNodeUsage({ taskId = null, node, tier = null, model = null, estTokens = null, actualTokens = null, status = 'OK' }) {
+export async function recordNodeUsage({ taskId = null, node, tier = null, model = null, estTokens = null, actualTokens = null, status = 'OK', role = 'worker' }) {
     try {
         const file = usageLogPath();
         await fs.mkdir(path.dirname(file), { recursive: true });
-        const rec = { at: new Date().toISOString(), task_id: taskId, node, tier, model, est_tokens: estTokens, actual_tokens: actualTokens, status };
+        // Phase-2 wiring: per-role budget is sourced from harness.config.json.
+        // We tag the record with the budget so audits can see whether a node blew it.
+        let budget = null;
+        try { budget = getBudgetForRole(role); } catch { /* config broken → no tag */ }
+        const rec = { at: new Date().toISOString(), task_id: taskId, node, role, tier, model, est_tokens: estTokens, actual_tokens: actualTokens, budget_tokens: budget, status };
         await fs.appendFile(file, JSON.stringify(rec) + '\n', 'utf-8');
         return rec;
     } catch { return null; }
+}
+
+/**
+ * Phase-2: returns the per-role token budget from harness.config.json. Callers
+ * should use this instead of a hard-coded constant so machine-local overrides in
+ * harness.config.local.json take effect. Returns null if the config is broken.
+ */
+export function getBudgetForRole(role = 'worker') {
+    const lim = getLimits(role);
+    if (lim && Number.isFinite(lim.budget_tokens) && lim.budget_tokens > 0) return lim.budget_tokens;
+    return null;
 }
 
 function parseRecordArgs(args) {
