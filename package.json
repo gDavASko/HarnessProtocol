@@ -1,0 +1,22 @@
+{
+  "name": "harness-protocol",
+  "version": "1.0.0",
+  "description": "A cybernetic control framework providing deterministic sandboxing, state gating, and integrity verification for autonomous AI agents.",
+  "type": "module",
+  "main": "Scripts/harness-orchestrator.js",
+  "scripts": {
+    "test": "node Scripts/run_all_tests.js",
+    "test:master": "node Scripts/run_all_tests.js",
+    "test:scenarios": "node Scripts/test_scenarios_suite.js",
+    "test:graph": "node Scripts/test_langgraph_flow.js",
+    "test:strategies": "node Scripts/test_strategies_subgraphs.js",
+    "test:efficiency": "node Scripts/test_efficiency_modules.js",
+    "test:all": "node Scripts/run_all_tests.js"
+  },
+  "author": "DavASko",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@langchain/core": "^0.3.40",
+    "@langchain/langgraph": "^0.2.55"
+  }
+}

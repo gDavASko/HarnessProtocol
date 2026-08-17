@@ -1,0 +1,215 @@
+{
+  "main": {
+    "id": "6974538cbd45f711",
+    "type": "split",
+    "children": [
+      {
+        "id": "b5cd2f328bcd2125",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "9a83b37fd1aad4b8",
+            "type": "leaf",
+            "state": {
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Граф"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "7e27bc384041ddb7",
+    "type": "split",
+    "children": [
+      {
+        "id": "8ea012b3e6b09d80",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6f7e61ab2ad7399d",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Файловый менеджер"
+            }
+          },
+          {
+            "id": "a7f586aedff35736",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Поиск"
+            }
+          },
+          {
+            "id": "3396d0475e5e315e",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Закладки"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "c3265c4ec50a5e4a",
+    "type": "split",
+    "children": [
+      {
+        "id": "974fce5d1f2ed252",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c21206483596ca57",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": true,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Обратные ссылки"
+            }
+          },
+          {
+            "id": "38f1b2dd3b186cca",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Исходящие ссылки"
+            }
+          },
+          {
+            "id": "f6f62951b047316a",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Теги"
+            }
+          },
+          {
+            "id": "39d1c3fa1e2ea2b7",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "Все свойства"
+            }
+          },
+          {
+            "id": "850ac4b60311bfa5",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Структура"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Меню быстрого перехода": false,
+      "graph:Граф": false,
+      "canvas:Создать новый холст": false,
+      "daily-notes:Сегодняшняя заметка": false,
+      "templates:Вставить шаблон": false,
+      "command-palette:Открыть палитру команд": false,
+      "bases:Создать новую базу": false,
+      "obsidian-importer:Импортировать заметки": false
+    }
+  },
+  "active": "9a83b37fd1aad4b8",
+  "lastOpenFiles": [
+    "HarnesProtocol/index (2).md",
+    "HarnesProtocol/index.md",
+    "HarnesProtocol/index (1).md",
+    "HarnesProtocol/STRESS_TEST_REPORT.md",
+    "HarnesProtocol/reasoning-effort-selection.md",
+    "HarnesProtocol/judge-selection.md",
+    "HarnesProtocol/README.md",
+    "HarnesProtocol/RalphLoopPrinciples.md",
+    "HarnesProtocol/0003-tri-tier-memory-hierarchy.md",
+    "HarnesProtocol/0001-isolated-ai-judge.md",
+    "HarnesProtocol/0010-tiered-criticality-and-quorum-verification.md",
+    "HarnesProtocol/0007-strict-triad-of-mandatory-human-gates.md",
+    "HarnesProtocol/glossary.md",
+    "HarnesProtocol/operational-memory-spec.md",
+    "HarnesProtocol/memory-protocol.md",
+    "HarnesProtocol/implementation_plan (1).md",
+    "HarnesProtocol/token-economy.md",
+    "HarnesProtocol/AGENT-DEFINITION-SPEC.md",
+    "HarnesProtocol/harness-worker.md",
+    "HarnesProtocol/harness-researcher.md",
+    "HarnesProtocol/harness-reasoner.md",
+    "HarnesProtocol/researcher.md",
+    "HarnesProtocol/reasoner.md",
+    "HarnesProtocol/worker.md",
+    "HarnesProtocol/implementation_plan.md",
+    "HarnesProtocol/harness-evaluator.md",
+    "HarnesProtocol"
+  ]
+}
