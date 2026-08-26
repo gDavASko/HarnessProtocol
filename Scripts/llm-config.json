@@ -1,4 +1,5 @@
 {
+  "_http_model_note": "HTTP-роли (router/worker/collator, access_type:http) вызывают Gemini API. Дефолтный model_id 'gemini-2.0-flash' УСТАРЕЛ (даёт 404). НЕ хардкодь новый ID здесь наугад — задай его через env GEMINI_HTTP_MODEL (перекрывает конфиг во всех HTTP-путях llmClient). Живые вызовы из тестов/офлайна отключаются флагом HARNESS_OFFLINE=1.",
   "capability_tiers": {
     "frontier": [
       "Gemini 3.5 Pro",

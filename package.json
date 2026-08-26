@@ -11,6 +11,7 @@
     "test:graph": "node Scripts/test_langgraph_flow.js",
     "test:strategies": "node Scripts/test_strategies_subgraphs.js",
     "test:efficiency": "node Scripts/test_efficiency_modules.js",
+    "test:ladder": "node Scripts/test_evidence_ladder.js",
     "test:all": "node Scripts/run_all_tests.js"
   },
   "author": "DavASko",

@@ -53,12 +53,20 @@ export async function callLLM(role, systemPrompt, userPrompt, options = {}) {
     }
 
     if (modelConfig.provider === 'gemini') {
+        // Герметичность: HARNESS_OFFLINE=1 запрещает живые HTTP-вызовы (тесты,
+        // офлайн-прогоны). Ошибка ловится штатным фолбэком, а не роняет прогон.
+        if (process.env.HARNESS_OFFLINE === '1') {
+            throw new Error(`[offline] живые LLM-вызовы отключены (HARNESS_OFFLINE=1), роль ${role}`);
+        }
         const apiKey = process.env[modelConfig.env_var];
         if (!apiKey) {
             throw new Error(`Не задана переменная окружения ${modelConfig.env_var} для роли ${role}`);
         }
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelConfig.model_id}:generateContent?key=${apiKey}`;
+        // Модель HTTP-Gemini выносится в env, чтобы не хардкодить протухший ID
+        // (gemini-2.0-flash → 404). GEMINI_HTTP_MODEL перекрывает конфиг.
+        const httpModelId = process.env.GEMINI_HTTP_MODEL || modelConfig.model_id;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${httpModelId}:generateContent?key=${apiKey}`;
         
         const payload = {
             systemInstruction: {
@@ -240,9 +248,14 @@ export async function callLLMDirect(modelEntry, systemPrompt, userPrompt, option
 
     // Попытка 1: Gemini HTTP API (если есть ключ)
     if (name.startsWith('Gemini') || name.startsWith('gemini')) {
+        if (process.env.HARNESS_OFFLINE === '1') {
+            throw new Error(`[offline] живые LLM-вызовы отключены (HARNESS_OFFLINE=1) для ${name}`);
+        }
         const apiKey = process.env.GEMINI_API_KEY;
         if (apiKey) {
-            const modelId = mapToGeminiApiId(name);
+            // GEMINI_HTTP_MODEL перекрывает маппинг вымышленного имени на API-ID —
+            // чтобы протухший дефолт (gemini-2.0-flash → 404) правился без кода.
+            const modelId = process.env.GEMINI_HTTP_MODEL || mapToGeminiApiId(name);
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
             const payload = {
                 systemInstruction: { parts: [{ text: systemPrompt }] },

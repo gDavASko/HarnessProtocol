@@ -28,7 +28,7 @@ function parseArgs() {
         taskDir: args[0],
         command: args[1],
         id: null, node: null, title: null, status: null,
-        validation: null, kind: null, strategy: null, max: null, syncInterval: null,
+        validation: null, kind: null, artifactClass: null, strategy: null, max: null, syncInterval: null,
         workerFamily: null, tier: null, mode: null, criticality: null,
         dod: [], deliverables: [], outcome: null, proof: null, constraints: [], maxNoProgress: null,
         parts: 0, oracle: false, profile: null, scaleMode: null
@@ -41,6 +41,7 @@ function parseArgs() {
         else if (a === '--status' && args[i + 1]) opts.status = args[++i].toUpperCase();
         else if (a === '--validation' && args[i + 1]) opts.validation = args[++i].toLowerCase();
         else if (a === '--kind' && args[i + 1]) opts.kind = args[++i].toLowerCase();
+        else if (a === '--class' && args[i + 1]) opts.artifactClass = args[++i].toLowerCase();
         else if (a === '--strategy' && args[i + 1]) opts.strategy = args[++i];
         else if (a === '--max' && args[i + 1]) opts.max = parseInt(args[++i], 10);
         else if (a === '--sync-interval' && args[i + 1]) opts.syncInterval = parseInt(args[++i], 10);
@@ -71,7 +72,7 @@ async function main() {
     const opts = parseArgs();
     const taskDir = resolveTaskDir(opts.taskDir);
     if (!taskDir || !opts.command) {
-        fail('Использование: node roadmapEdit.js <task_dir> <add-node|set-status|set-dod|set-goal|set-scale|set-field|set-current|list> [опции]');
+        fail('Использование: node roadmapEdit.js <task_dir> <add-node|set-status|set-dod|add-dod|set-goal|set-scale|set-field|set-current|set-config|list> [опции]');
     }
 
     const roadmap = await readRoadmap(taskDir);
@@ -93,6 +94,10 @@ async function main() {
                 validation_type: opts.validation || 'auto',
                 mode: opts.mode || null,
                 artifact_kind: opts.kind || 'code',
+                // Lever 1′: класс лестницы доказательств. Если не задан явно —
+                // выводится из artifact_kind в evidenceLadder.classifyNode
+                // (text→text, code→code.testable). behavioral требует явного --class.
+                artifact_class: opts.artifactClass || null,
                 worker_family: opts.workerFamily || null,
                 tier: opts.tier || null,
                 criticality: opts.criticality || null,
@@ -116,6 +121,16 @@ async function main() {
             const node = requireNode(roadmap, opts.node);
             if (opts.dod.length === 0) fail('set-dod требует хотя бы один --dod');
             node.dod = opts.dod.map(c => ({ criterion: c, done: false }));
+            break;
+        }
+
+        case 'add-dod': {
+            // Ratchet (Lever 3): найденный пробел/баг становится НОВЫМ критерием DoD,
+            // а не подавляется как «unsolicited». Дополняет, не затирает.
+            const node = requireNode(roadmap, opts.node);
+            if (opts.dod.length === 0) fail('add-dod требует хотя бы один --dod');
+            if (!Array.isArray(node.dod)) node.dod = [];
+            for (const c of opts.dod) node.dod.push({ criterion: c, done: false });
             break;
         }
 
@@ -147,6 +162,7 @@ async function main() {
             const node = requireNode(roadmap, opts.node);
             if (opts.validation) node.validation_type = opts.validation;
             if (opts.kind) node.artifact_kind = opts.kind;
+            if (opts.artifactClass) node.artifact_class = opts.artifactClass;
             if (opts.strategy) node.strategy = opts.strategy;
             if (opts.title) node.title = opts.title;
             if (Number.isFinite(opts.max)) node.max_iterations = opts.max;
@@ -180,6 +196,7 @@ async function main() {
                 nodes: roadmap.nodes.map(n => ({
                     id: n.id, title: n.title, status: n.status,
                     validation_type: n.validation_type, mode: n.mode, artifact_kind: n.artifact_kind,
+                    artifact_class: n.artifact_class || null,
                     strategy: n.strategy, dod_count: n.dod.length, goal: n.goal, workflow: n.workflow
                 }))
             }, null, 2));

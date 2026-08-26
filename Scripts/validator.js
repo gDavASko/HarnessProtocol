@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url';
 import { callExternalJudge, callSingleJudge } from './cliTransport.js';
 import { getAvailableJudgeChain, probeSummary, familyOf, liveJudgesFromProbe } from './aiProbe.js';
 import { selectJudge, toFamily } from './judgeSelector.js';
+import { classifyNode, evaluateFloor, recordRung, RUNGS, isTrivialOracleCommand, recordTaskIntegration } from './evidenceLadder.js';
+import { scanText } from './securityScan.js';
+import { evaluateRubric } from './rubric.js';
 import { getJudgePool, getQuorumPolicy } from './harnessConfig.js';
 import { findRepoRoot } from './harnessPaths.js';
 import {
@@ -52,7 +55,9 @@ function parseArgs() {
         approve: false,
         reject: false,
         commands: [],
-        judgeFile: null
+        judgeFile: null,
+        rung: null,
+        waive: null
     };
 
     for (let i = 1; i < args.length; i++) {
@@ -64,6 +69,8 @@ function parseArgs() {
         if (args[i] === '--reject') options.reject = true;
         if (args[i] === '--cmd' && args[i + 1]) options.commands.push(args[++i]);
         if (args[i] === '--judge-file' && args[i + 1]) options.judgeFile = args[++i];
+        if (args[i] === '--rung' && args[i + 1]) options.rung = args[++i].toLowerCase();
+        if (args[i] === '--waive' && args[i + 1]) options.waive = args[++i];
     }
 
     return options;
@@ -384,16 +391,22 @@ async function buildJudgePrompt(taskDir, node) {
 
     const systemText = `${preamble}
 
-Ты — независимый внешний AI-Судья (Validator). Тебя вызвали, чтобы объективно и жёстко проверить ЧУЖУЮ работу по критериям DoD. Не доверяй отчёту исполнителя — опирайся на фактические изменения/артефакты. Оценивай строго по существу. Никаких лишних действий, придирок к стилю или не связанных с задачей рефакторингов. Оценивай ТОЛЬКО то, о чем просили в DoD. Новые изменения ни в коем случае не должны ломать действующую структуру.
+Ты — независимый внешний AI-Судья (Red-Team Validator). Твоя работа — НЕ подтвердить, что работа хороша, а НАЙТИ, чем она НЕ решает настоящий запрос пользователя. Действуй с презумпцией подозрения: считай, что дефекты есть, пока не убедишься в обратном по фактам. Планка — то, что забраковал бы придирчивый senior-инженер на ревью перед мержем в продакшн.
+Не доверяй отчёту исполнителя — опирайся ТОЛЬКО на фактические изменения/артефакты. Проверяй не «похоже ли, что критерий выполнен», а «действительно ли оно работает и полностью закрывает запрос»: ищи необработанные крайние случаи, разорванную интеграцию (код написан, но не подключён к вызывающей стороне), молчаливые провалы, рассинхрон с исходной целью задачи, регрессии в затронутых местах.
+Для КАЖДОГО найденного дефекта дай КОНКРЕТНЫЙ воспроизводимый сценарий провала в форме «вход/состояние → неверный выход/поведение». Дефект без такого сценария — это догадка, не находка; не засчитывай его, но и не выдавай pass, если реальных сомнений много.
+Выноси pass=true ТОЛЬКО когда каждый критерий DoD действительно закрыт по фактам и ты честно попытался сломать работу и не смог.
 Верни СТРОГО JSON без markdown-обёртки:
 {
   "pass": boolean,
   "dod_results": [ { "index": 0, "pass": true }, { "index": 1, "pass": false } ],
-  "evidence": ["дословная цитата из diff/артефактов, подтверждающая вердикт", "..."],
-  "errors": ["конкретная причина 1", "..."]
+  "evidence": ["дословная цитата из diff/артефактов", "..."],
+  "errors": ["DoD#<индекс>: <дефект и сценарий провала: вход/состояние → неверный результат>", "..."],
+  "rubric": { "functionality": 0-10, "quality": 0-10, "security": 0-10, "edge_cases": 0-10 }
 }
+Рубрика (обязательна): оцени 4 измерения по шкале 0..10 честно и придирчиво: functionality (соответствие запросу по факту), quality (чистота/поддерживаемость/обработка ошибок), security (нет утечек секретов, инъекций, обхода авторизации), edge_cases (крайние случаи, некорректный ввод, отказы). Низкие measures при формальном pass — это сигнал; порог и security-floor применяются автоматически.
 Массив dod_results обязан содержать оценку каждого критерия DoD по его индексу (с 0). Если хотя бы один критерий не выполнен — верни pass: false.
-ОБЯЗАТЕЛЬНО: для вердикта pass=true массив "evidence" должен содержать минимум одну ДОСЛОВНУЮ цитату из фактических изменений/артефактов, доказывающую выполнение DoD. Голый pass без цитат-доказательств недопустим и будет отклонён.`;
+ОБЯЗАТЕЛЬНО: для вердикта pass=true массив "evidence" должен содержать минимум одну ДОСЛОВНУЮ цитату из фактических изменений/артефактов, доказывающую выполнение DoD. Голый pass без цитат-доказательств недопустим и будет отклонён.
+ОБЯЗАТЕЛЬНО: для вердикта pass=false массив "errors" обязан содержать для каждого проваленного критерия конкретный сценарий провала (вход/состояние → неверный результат), а не общую формулировку.`;
 
     const userText = `КРИТЕРИИ DoD (индексы с 0):
 ${dodText}
@@ -473,7 +486,7 @@ function tryFixJson(text) {
  * Parse a raw judge JSON reply into a normalized verdict record.
  * Enforces the "bare PASS without evidence -> FAIL" rule already present in
  * the single-judge path, so quorum members can't sneak an unjustified PASS in.
- * @returns {{verdict:'PASS'|'FAIL'|'PARSE_ERROR', evidence:string[], errors:string[], dodResults:Array|null, raw:string}}
+ * @returns {{verdict:'PASS'|'FAIL'|'PARSE_ERROR', evidence:string[], errors:string[], dodResults:Array|null, rubric?:object, raw:string}}
  */
 export function parseJudgeVerdict(rawText) {
     const parsed = tryFixJson(rawText);
@@ -491,9 +504,14 @@ export function parseJudgeVerdict(rawText) {
             // single-judge path does.
             return { verdict: 'FAIL', evidence, errors: ['PASS отклонён: не приведено ни одной цитаты-доказательства (evidence).'], dodResults, raw: rawText };
         }
-        return { verdict: 'PASS', evidence, errors, dodResults, raw: rawText };
+        // Взвешенная рубрика может понизить формальный PASS до FAIL.
+        const rub = evaluateRubric(parsed.rubric);
+        if (!rub.ok) {
+            return { verdict: 'FAIL', evidence, errors: [...errors, `Рубрика отклонила PASS: ${rub.reason}`], dodResults, rubric: rub, raw: rawText };
+        }
+        return { verdict: 'PASS', evidence, errors, dodResults, rubric: rub, raw: rawText };
     }
-    return { verdict: 'FAIL', evidence, errors, dodResults, raw: rawText };
+    return { verdict: 'FAIL', evidence, errors, dodResults, rubric: evaluateRubric(parsed.rubric), raw: rawText };
 }
 
 /**
@@ -756,6 +774,19 @@ async function runAiValidation(taskDir, node) {
     };
 }
 
+// Встроенный security-оракул: сканирует те же доказательства, что видит судья
+// (git diff для кода / артефакты), и пишет рецепт рунга `security`. Turnkey —
+// не требует внешнего инструмента.
+async function runSecurityRung(taskDir, node) {
+    const { evidence } = await gatherEvidence(taskDir, node);
+    const scan = scanText(evidence);
+    const detail = scan.clean
+        ? 'security scan: чисто'
+        : 'security: ' + scan.findings.map(f => `${f.desc} (${f.sample})`).join('; ');
+    await recordRung(taskDir, node, RUNGS.SECURITY, scan.clean ? 'PASS' : 'FAIL', detail);
+    return { clean: scan.clean, findings: scan.findings, detail };
+}
+
 async function main() {
     const options = parseArgs();
     if (!options.taskDir || !options.nodeId || !options.type) {
@@ -765,19 +796,104 @@ async function main() {
         process.exit(1);
     }
 
-    if (!['auto', 'ai', 'human'].includes(options.type)) {
+    if (!['auto', 'ai', 'human', 'oracle'].includes(options.type)) {
         console.error(JSON.stringify({
-            error: `Неизвестный тип: ${options.type}. Допустимые: auto, ai, human`
+            error: `Неизвестный тип: ${options.type}. Допустимые: auto, ai, human, oracle`
         }));
         process.exit(1);
     }
 
     const state = await readState(options.taskDir);
     const roadmap = await readRoadmap(options.taskDir);
+    // ─── Интеграционный оракул (гейт целостности всей задачи) ───
+    // `--type oracle --rung integration` прогоняет полную сборку/тесты кодовой
+    // базы и пишет task-level рецепт. Не требует конкретного узла — это финальная
+    // сверка перед TASK_COMPLETE (loopAdvancer вернёт NEEDS_FINAL_INTEGRATION без неё).
+    if (options.type === 'oracle' && options.rung === 'integration') {
+        if (options.commands.length === 0) {
+            console.error(JSON.stringify({ error: 'integration требует --cmd "<полная сборка/тесты>".' }));
+            process.exit(1);
+        }
+        const trivial = options.commands.find(isTrivialOracleCommand);
+        if (trivial) {
+            console.error(JSON.stringify({ error: 'TRIVIAL_ORACLE', rejected_cmd: trivial, message: `«${trivial}» не является реальной интеграционной проверкой.` }));
+            process.exit(1);
+        }
+        const auto = await runAutoValidation(options.taskDir, options.commands);
+        const detail = auto.results.map(item => item.command ? `${item.command}: ${item.status}` : item.output).join('; ');
+        await recordTaskIntegration(options.taskDir, roadmap, auto.overall, detail);
+        console.log(JSON.stringify({
+            type: 'oracle', rung: 'integration', result: auto.overall, checks: auto.results,
+            message: auto.overall === 'PASS'
+                ? 'Интеграционный прогон зелёный — задачу можно закрывать (loopAdvancer вернёт TASK_COMPLETE).'
+                : 'Интеграция провалена — вся кодовая база не собирается/не проходит тесты вместе. Исправь перед закрытием.'
+        }, null, 2));
+        process.exit(auto.overall === 'PASS' ? 0 : 1);
+    }
+
     const node = getNode(roadmap, options.nodeId);
     if (!node) {
         console.error(JSON.stringify({ error: `Узел ${options.nodeId} не найден в .harness_roadmap.json` }));
         process.exit(1);
+    }
+
+    // ─── Тип `oracle` (Lever 1′): запись рецепта рунга лестницы доказательств ───
+    // Прогоняет детерминированную проверку (compile/tests/console_clean/lint) во
+    // время работы над узлом и фиксирует рецепт. НЕ меняет стадию/статус узла —
+    // это ступень пола, а не сертификация. Пол проверяется позже, в точке PASS.
+    // Отвод рунга: `--rung <name> --waive "<причина>"` пишет WAIVED-рецепт для
+    // физически непроверяемого headless остатка (честный залогированный клапан).
+    if (options.type === 'oracle') {
+        const rung = options.rung || RUNGS.TESTS;
+        if (options.waive) {
+            const rec = await recordRung(options.taskDir, node, rung, 'WAIVED', options.waive);
+            console.log(JSON.stringify({
+                type: 'oracle', node: node.id, rung, result: 'WAIVED',
+                reason: options.waive, iteration: rec.iteration,
+                message: `Рунг [${rung}] отведён (WAIVED) с обоснованием. Отвод залогирован и виден судье/человеку.`
+            }, null, 2));
+            return;
+        }
+        // Встроенный security-оракул: без --cmd сканируем доказательства сами.
+        if (rung === RUNGS.SECURITY && options.commands.length === 0) {
+            const sec = await runSecurityRung(options.taskDir, node);
+            console.log(JSON.stringify({
+                type: 'oracle', node: node.id, rung: 'security', result: sec.clean ? 'PASS' : 'FAIL',
+                findings: sec.findings,
+                message: sec.clean ? 'Security-скан чист.' : `Security-скан нашёл проблемы: ${sec.detail}. Убери секреты/опасные конструкции.`
+            }, null, 2));
+            process.exit(sec.clean ? 0 : 1);
+        }
+        if (options.commands.length === 0) {
+            console.error(JSON.stringify({
+                error: 'oracle требует --cmd "<команда>" (или --waive "<причина>" для непроверяемого рунга).'
+            }));
+            process.exit(1);
+        }
+        // Пол не засчитывает фиктивные no-op команды — иначе зелёная галочка на
+        // непроверенном коде. Требуем реальный оракул, трогающий deliverables.
+        const trivial = options.commands.find(isTrivialOracleCommand);
+        if (trivial) {
+            const rec = await recordRung(options.taskDir, node, rung, 'TRIVIAL', `no-op отклонён: ${trivial}`);
+            console.error(JSON.stringify({
+                error: 'TRIVIAL_ORACLE',
+                node: node.id, rung, rejected_cmd: trivial, iteration: rec.iteration,
+                message: `Команда «${trivial}» ничего не проверяет и НЕ засчитывается в пол. Дай реальный оракул, прогоняющий deliverables узла (сборка/typecheck/тесты/скриптовый прогон).`
+            }));
+            process.exit(1);
+        }
+        const auto = await runAutoValidation(options.taskDir, options.commands);
+        const detail = auto.results.map(item =>
+            item.command ? `${item.command}: ${item.status}` : item.output).join('; ');
+        const rec = await recordRung(options.taskDir, node, rung, auto.overall, detail);
+        console.log(JSON.stringify({
+            type: 'oracle', node: node.id, rung, result: auto.overall,
+            iteration: rec.iteration, checks: auto.results,
+            message: auto.overall === 'PASS'
+                ? `Рунг [${rung}] зафиксирован зелёным (итерация ${rec.iteration}).`
+                : `Рунг [${rung}] провален — исправь и прогони заново перед сертификацией.`
+        }, null, 2));
+        return;
     }
 
     if (options.type === 'human' && (options.approve || options.reject)) {
@@ -832,6 +948,36 @@ async function main() {
         }
     }
 
+    // ─── ГЕЙТ: самопроверка исполнителя (Lever 4) ───
+    // Прежде чем тратить внешнего судью, исполнитель обязан в отчёте оставить
+    // раздел ## SELF-REVIEW: для каждого пункта DoD — строка, что его выполняет;
+    // ≥3 способа, которыми это может сломаться; результат прогона оракула. Именно
+    // здесь чинится «ИИ не проверяла свою работу». Scoped на code-классы, чтобы
+    // не мешать текстовым артефактам. Включается HARNESS_REQUIRE_SELFREVIEW=1.
+    if (process.env.HARNESS_REQUIRE_SELFREVIEW !== '0' && !options.judgeFile
+        && classifyNode(node).startsWith('code.')
+        && !(options.type === 'human' && !options.approve && !options.reject)) {
+        let reportRaw = '';
+        try { reportRaw = await readClean(path.resolve(options.taskDir, 'validation_report.md')); } catch { /* нет отчёта */ }
+        const m = reportRaw.match(/##\s*SELF-REVIEW\s*\n+([\s\S]*?)(?:\n---|\n##\s|$)/i);
+        const body = m ? m[1].trim() : '';
+        // Структурная (не смысловая) проверка качества: ловит отписки вроде
+        // «SELF-REVIEW: ok». Требуем содержательность: длину, ≥3 пунктов и
+        // упоминание результата оракула (compile/tests/rung/oracle).
+        const lineItems = (body.match(/^\s*(?:[-*•]|\d+[.)])\s+\S/gm) || []).length;
+        const mentionsOracle = /\b(oracle|оракул|compile|typecheck|tests?|тест|rung|рунг|build|сборк)\b/i.test(body);
+        const substantive = body.length >= 100 && lineItems >= 3 && mentionsOracle;
+        if (!body || body.includes('ОБЯЗАТЕЛЬНО заполнить') || !substantive) {
+            console.error(JSON.stringify({
+                error: 'GATE_FAILED',
+                gate: 'self_review_required',
+                detail: { length: body.length, line_items: lineItems, mentions_oracle: mentionsOracle },
+                message: 'Раздел ## SELF-REVIEW не содержателен. Для code-узла нужно: (1) по каждому пункту DoD — строка/файл, что его закрывает; (2) ≥3 конкретных способа, которыми это может сломаться (пунктами); (3) результат прогона оракула по каждому рунгу. Отписка вида «ok» не проходит. (или HARNESS_REQUIRE_SELFREVIEW=0)'
+            }));
+            process.exit(1);
+        }
+    }
+
     // ─── ГЕЙТ: Проверка наличия файлов субагентов для мультиагентных стратегий ───
     const isPassing = (options.type === 'ai' && options.result === 'PASS') ||
                       (options.type === 'auto') ||
@@ -861,6 +1007,12 @@ async function main() {
             validationComment = auto.results.map(item =>
                 item.command ? `${item.command}: ${item.status}` : item.output
             ).join('; ');
+            // Lever 1′: штатный детерминированный прогон засчитывается в пол лестницы.
+            // No-op команды не засчитываются (TRIVIAL), даже если формально прошли.
+            {
+                const rr = (auto.overall === 'PASS' && options.commands.some(isTrivialOracleCommand)) ? 'TRIVIAL' : auto.overall;
+                await recordRung(options.taskDir, node, options.rung || RUNGS.TESTS, rr, validationComment);
+            }
             await updateReportVerdict(options.taskDir, validationResult, validationComment);
             updateRoadmapAfterValidation(roadmap, node, validationResult, validationComment);
 
@@ -886,6 +1038,10 @@ async function main() {
                 validationComment = `[oracle, judge skipped] ` + auto.results.map(item =>
                     item.command ? `${item.command}: ${item.status}` : item.output
                 ).join('; ');
+                {
+                    const rr = (auto.overall === 'PASS' && options.commands.some(isTrivialOracleCommand)) ? 'TRIVIAL' : auto.overall;
+                    await recordRung(options.taskDir, node, options.rung || RUNGS.TESTS, rr, validationComment);
+                }
                 await updateReportVerdict(options.taskDir, validationResult, validationComment);
                 updateRoadmapAfterValidation(roadmap, node, validationResult, validationComment);
                 response = {
@@ -934,10 +1090,15 @@ async function main() {
                     }
                 }
 
-                validationResult = verdict.pass ? 'PASS' : 'FAIL';
-                validationComment = verdict.pass
-                    ? 'Судья [subagent-fallback]: все критерии выполнены.'
-                    : `Судья [subagent-fallback]: ${(verdict.errors || []).join('; ') || 'критерии не выполнены'}`;
+                // Взвешенная рубрика понижает формальный PASS субагента до FAIL.
+                const subRubric = evaluateRubric(verdict.rubric);
+                const subPass = verdict.pass && subRubric.ok;
+                validationResult = subPass ? 'PASS' : 'FAIL';
+                validationComment = subPass
+                    ? `Судья [subagent-fallback]: все критерии выполнены.${subRubric.score != null ? ' Рубрика: ' + subRubric.reason + '.' : ''}`
+                    : (verdict.pass && !subRubric.ok
+                        ? `Судья [subagent-fallback]: DoD формально закрыт, но рубрика отклонила: ${subRubric.reason}`
+                        : `Судья [subagent-fallback]: ${(verdict.errors || []).join('; ') || 'критерии не выполнены'}`);
 
                 await updateReportVerdict(options.taskDir, validationResult, validationComment);
                 updateRoadmapAfterValidation(roadmap, node, validationResult, validationComment, verdict.dod_results || null);
@@ -1077,10 +1238,55 @@ async function main() {
     }
 
     if (validationResult === 'PASS') {
+        // ─── ГЕЙТ: пол лестницы доказательств (Lever 1′) ───────────────────────
+        // Ни один code-узел не сертифицируется как PASS, пока обязательные
+        // детерминированные рунги (compile/tests/console_clean) не прогнаны
+        // зелёными на ТЕКУЩЕЙ итерации. Это ловит «сырое забагованное, которое
+        // ИИ даже не запускал»: судья по диффу больше не может подменить оракул,
+        // который был обязателен и доступен. Отключается HARNESS_ENFORCE_FLOOR=0.
+        let floor = await evaluateFloor(options.taskDir, node);
+        // Turnkey security-floor: если рунг security ещё не прогнан на этой итерации,
+        // автозапускаем встроенный скан. Чистый код проходит сам; утечка секрета/
+        // auth-bypass роняет пол с конкретной находкой.
+        if (process.env.HARNESS_ENFORCE_FLOOR !== '0' && floor.enforce && floor.missing.includes(RUNGS.SECURITY)) {
+            await runSecurityRung(options.taskDir, node);
+            floor = await evaluateFloor(options.taskDir, node);
+        }
+        if (process.env.HARNESS_ENFORCE_FLOOR !== '0' && floor.enforce && !floor.floorMet) {
+            node.dod = node.dod.map(d => ({ ...d, done: false }));
+            const delivPart = floor.missing_deliverables.length
+                ? ` Отсутствуют/пусты заявленные deliverables: [${floor.missing_deliverables.join(', ')}].` : '';
+            node.last_error = `oracle_floor: не хватает рунгов [${floor.missing.join(', ')}]${floor.missing_deliverables.length ? '; deliverables: [' + floor.missing_deliverables.join(', ') + ']' : ''}`;
+            const floorMsg = `Пол доказательства не выполнен для класса ${floor.cls}: не хватает зелёных рунгов [${floor.missing.join(', ')}].${delivPart} `
+                + `Прогони рунги через: node validator.js <task_dir> --node ${node.id} --type oracle --rung <rung> --cmd "<команда>" `
+                + `(или --waive "<причина>" для физически непроверяемого headless остатка), создай недостающие deliverables, затем повтори валидацию.`;
+            await updateReportVerdict(options.taskDir, 'FAIL', floorMsg);
+            state.stage = 'report_ready';
+            state.validation_result = 'FLOOR_UNMET';
+            state.current_node = node.id;
+            await writeRoadmap(options.taskDir, roadmap, { syncMarkdown: true });
+            await writeState(options.taskDir, state);
+            console.log(JSON.stringify({
+                error: 'GATE_FAILED',
+                gate: 'oracle_floor',
+                node: node.id,
+                artifact_class: floor.cls,
+                required: floor.required,
+                met: floor.met,
+                waived: floor.waived,
+                missing: floor.missing,
+                missing_deliverables: floor.missing_deliverables,
+                message: floorMsg
+            }, null, 2));
+            // Гейт обязан падать громко (ненулевой код выхода), как остальные
+            // GATE_FAILED движка — иначе вызывающая сторона примет блок за успех.
+            process.exit(1);
+        }
         state.stage = 'validated';
         state.validated_at = new Date().toISOString();
         state.validation_result = 'PASS';
         state.current_node = node.id;
+        state.evidence_floor = { class: floor.cls, met: floor.met, waived: floor.waived };
     } else if (validationResult === 'UNVALIDATED') {
         // F5: not a FAIL (the work may be fine) but NOT certified — cannot advance.
         state.stage = 'report_ready';

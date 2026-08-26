@@ -3,6 +3,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
+import { findRepoRoot } from './harnessPaths.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -13,9 +14,25 @@ process.env.HARNESS_PROBE_SKIP = '1';
 // Этот smoke проверяет state machine, а не ручное заполнение отчёта;
 // иначе новый summary-gate скрывает целевую проверку auto-validation.
 process.env.HARNESS_REQUIRE_SUMMARY = '0';
+// Этот smoke проверяет машину состояний и гейты жизненного цикла, а не лестницу
+// доказательств (у неё свой сьют — test_evidence_ladder.js). Пол оракула здесь
+// отключён, иначе human-approve code-узла без реальных прогонов упрётся в oracle_floor.
+process.env.HARNESS_ENFORCE_FLOOR = '0';
+// Аналогично: self-review-гейт (проза исполнителя) не относится к смоуку машины состояний.
+process.env.HARNESS_REQUIRE_SELFREVIEW = '0';
+// Финальная интеграция — отдельный гейт целостности; смоук машины состояний
+// доводит узел до TASK_COMPLETE без реальной сборки, поэтому здесь выключен.
+process.env.HARNESS_REQUIRE_FINAL_INTEGRATION = '0';
 
 const SCRIPTS_DIR = __dirname;
-const TACTICAL_BASE_DIR = path.resolve(SCRIPTS_DIR, '../../../../..', 'memory/tactical');
+// Якорим базу тактической памяти к КОРНЮ репозитория (как task_initializer через
+// harnessPaths.tacticalBase), а не к фиксированной глубине «5 уровней вверх» —
+// иначе в standalone-раскладке путь уходит выше корня диска и файлы «не находятся».
+const TACTICAL_BASE_DIR = path.join(findRepoRoot(), 'memory/tactical');
+// Герметичность: жёстко фиксируем TACTICAL_DIR под ожидаемую базу, чтобы
+// task_initializer (который читает эту переменную) писал туда же, куда смотрит
+// тест — независимо от того, что было в окружении вызывающей стороны.
+process.env.TACTICAL_DIR = TACTICAL_BASE_DIR;
 const TEST_TASK_ID = 'TACT-TEST-SMOKE';
 const TEST_TASK_DIR = path.join(TACTICAL_BASE_DIR, TEST_TASK_ID);
 

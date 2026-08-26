@@ -236,11 +236,21 @@ function spawnCli(bin, argv, { cwd, input, timeoutMs }) {
             resolve({ code, stdout, stderr, timedOut: false });
         });
 
-        if (input != null && child.stdin) {
-            child.stdin.write(input, 'utf-8');
-            child.stdin.end();
-        } else if (child.stdin) {
-            child.stdin.end();
+        if (child.stdin) {
+            // Устойчивость: если CLI-судья умер/закрыл stdin рано (частый случай с
+            // флапающими бинарями), запись в stdin поднимает EPIPE/EOF как СОБЫТИЕ
+            // 'error' на стриме — отдельное от child.on('error'). Без обработчика
+            // оно роняло ВЕСЬ прогон харнеса вместо graceful-fallback на другого
+            // судью. Гасим его в спокойный результат.
+            child.stdin.on('error', (err) => {
+                resolve({ code: -1, stdout, stderr: stderr + `\n[stdin] ${err.message}`, spawnError: true });
+            });
+            try {
+                if (input != null) child.stdin.write(input, 'utf-8');
+                child.stdin.end();
+            } catch (err) {
+                resolve({ code: -1, stdout, stderr: stderr + `\n[stdin-write] ${err.message}`, spawnError: true });
+            }
         }
     });
 }

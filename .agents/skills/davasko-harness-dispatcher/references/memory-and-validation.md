@@ -57,7 +57,20 @@ is needed, set the node type to `ai` instead.
 node HarnessProtocol/Scripts/validator.js <task_dir> --node <ID> --type ai
 ```
 - The AI agent **NEVER judges its own result**.
-- **Judge Constraint:** Judges MUST evaluate ONLY what was specifically asked. No unsolicited actions, no penalizing for not rewriting working code, and strictly sticking to the point ("только по существу, никаких лишних действий, о чем спрашивают, о том и работаем").
+- **Judge stance (Lever 2 — adversarial):** the judge is a RED-TEAM validator with a
+  presumption of suspicion, held to the bar of "what a picky senior would reject
+  before merge". It does NOT confirm the diff matches the DoD — it HUNTS for how the
+  work fails the real request: unhandled edge cases, broken wiring (code written but
+  not called), silent failures, drift from the task goal, regressions. For each
+  defect it must give a concrete reproducible failure scenario (`input/state → wrong
+  result`); a bare pass without cited evidence is rejected. Do NOT instruct the judge
+  to "only check the DoD" or "not be picky" — that forgiving stance is exactly what
+  let omissions through. The judge still must not demand unrelated refactors of OTHER
+  people's working code, but it MUST flag omissions and defects in the work under review.
+- **Oracle floor (Lever 1′):** a `code.*` node is NEVER certified PASS until its
+  mandatory deterministic rungs ran green on the current iteration (the `oracle_floor`
+  gate enforces this). The LLM judge covers only the layer no oracle reaches. Full
+  contract → [evidence-ladder.md](evidence-ladder.md).
 - `validator.js` itself calls the external judge via `cliTransport` (the binary
   chain from `llm-config.json → cli_transport.judge_chain`, by default
   `agy → codex → claude`).

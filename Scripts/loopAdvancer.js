@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import readline from 'readline';
 import { findRepoRoot } from './harnessPaths.js';
+import { evaluateTaskIntegration } from './evidenceLadder.js';
 import {
     readClean,
     readState,
@@ -295,6 +296,23 @@ async function main() {
             // Проверяем, все ли узлы DONE
             const allDone = roadmap.nodes.every(n => n.status === 'DONE');
             if (allDone) {
+                // ─── ГЕЙТ: финальная интеграция ───
+                // Каждый узел зелён по отдельности — но собирается ли вся кодовая
+                // база и проходит ли тесты ВМЕСТЕ? Требуем свежий зелёный
+                // интеграционный прогон перед закрытием. Отключается
+                // HARNESS_REQUIRE_FINAL_INTEGRATION=0 (напр. для чисто-текстовых задач).
+                if (process.env.HARNESS_REQUIRE_FINAL_INTEGRATION !== '0') {
+                    const integ = await evaluateTaskIntegration(opts.taskDir, roadmap);
+                    if (!integ.ok) {
+                        console.log(JSON.stringify({
+                            action: 'NEEDS_FINAL_INTEGRATION',
+                            reason: integ.reason,
+                            instruction: `Прогони финальную интеграцию всей кодовой базы: node HarnessProtocol/Scripts/validator.js ${opts.taskDir} --node __TASK__ --type oracle --rung integration --cmd "<полная сборка+тесты>". Затем повтори loopAdvancer.`
+                        }, null, 2));
+                        process.exit(0);
+                    }
+                }
+
                 // Interactive prompt
                 const isInteractive = process.stdout.isTTY && process.stdin.isTTY && process.env.CI !== '1';
                 if (isInteractive) {

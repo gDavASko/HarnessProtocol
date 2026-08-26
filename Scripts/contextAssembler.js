@@ -15,6 +15,7 @@ import {
     writeState
 } from './harnessState.js';
 import { runProbe, getAvailableJudgeChain, probeSummary } from './aiProbe.js';
+import { classifyNode, evaluateFloor } from './evidenceLadder.js';
 
 function parseArgs() {
     const args = process.argv.slice(2);
@@ -182,12 +183,19 @@ async function modeValidate(taskDir, nodeId) {
         } catch { /* no autonomous result file */ }
     }
 
+    // Lever 1′/4: класс артефакта и текущий статус пола лестницы — чтобы отчёт
+    // с самого начала показывал, какие детерминированные рунги ещё не зелёные
+    // («verify before build»), и требовал self-review на code-узлах.
+    const cls = classifyNode(node);
+    const floor = await evaluateFloor(taskDir, node);
     const report = buildValidationReport({
         node,
         dateStr,
         constraintsDigest: constraints.digest,
         deliverables,
-        summaryText
+        summaryText,
+        cls,
+        floor
     });
 
     await fs.writeFile(reportPath, UTF8_BOM + report, 'utf-8');
@@ -226,10 +234,42 @@ async function updateStateForContext(taskDir, mode, constraints) {
 
 const SUMMARY_PLACEHOLDER = '_(ОБЯЗАТЕЛЬНО заполнить: краткое резюме сделанного, ≤300 токенов)_';
 
-function buildValidationReport({ node, dateStr, constraintsDigest, deliverables, summaryText = '' }) {
+const SELFREVIEW_PLACEHOLDER = '_(ОБЯЗАТЕЛЬНО заполнить для code-узла: (1) каждый пункт DoD → строка/файл, что его закрывает; (2) ≥3 способа, которыми это может сломаться; (3) результат прогона оракула по каждому рунгу.)_';
+
+function buildValidationReport({ node, dateStr, constraintsDigest, deliverables, summaryText = '', cls = null, floor = null }) {
     const summaryBlock = summaryText && summaryText.trim()
         ? summaryText.trim()
         : SUMMARY_PLACEHOLDER;
+
+    // Lever 1′: ранний сигнал пола — код-узел без зелёных рунгов не сертифицируется.
+    let oracleBlock = '';
+    if (floor && floor.enforce) {
+        const rung = (r) => floor.met.includes(r) ? `\`${r}\` ✅`
+            : floor.waived.includes(r) ? `\`${r}\` ⚠️ WAIVED`
+            : `\`${r}\` ❌ не зелёный`;
+        oracleBlock = `## ОРАКУЛ (пол лестницы доказательств)
+
+**Класс:** \`${cls}\` | **Итерация:** #${floor.iteration} | **Пол выполнен:** ${floor.floorMet ? '✅' : '❌'}
+
+Обязательные рунги: ${floor.required.map(rung).join(' · ')}
+
+${floor.floorMet ? '' : `> ⚠️ Сертификация будет заблокирована гейтом \`oracle_floor\`, пока не хватает: **${floor.missing.join(', ')}**. Прогони их: \`validator.js <dir> --node ${node.id} --type oracle --rung <rung> --cmd "<команда>"\`.`}
+
+---
+
+`;
+    }
+
+    // Lever 4: self-review исполнителя для code-узлов.
+    const selfReviewBlock = (cls && cls.startsWith('code.'))
+        ? `## SELF-REVIEW
+
+${SELFREVIEW_PLACEHOLDER}
+
+---
+
+`
+        : '';
     const dodTable = node.dod.map((item, index) =>
         `| ${index + 1} | ${item.criterion} | ${item.done ? '✅' : '❓'} |`
     ).join('\n');
@@ -264,7 +304,7 @@ ${summaryBlock}
 
 ---
 
-## Критерии качества (Definition of Done)
+${oracleBlock}${selfReviewBlock}## Критерии качества (Definition of Done)
 
 | # | Критерий | Статус |
 |:--|:---------|:------:|

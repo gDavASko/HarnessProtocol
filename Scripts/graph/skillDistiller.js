@@ -14,6 +14,14 @@ export async function distillSkillIfEligible(taskDir, node, solutionSummary) {
         return { distilled: false, reason: 'Node criticality < L3 and iterations < 2' };
     }
 
+    // Дистиллируем навык ТОЛЬКО из верифицированного успеха. Если сводка решения —
+    // это ошибка/фолбэк модели (например, провал live-вызова CLI/API), запись в
+    // трекаемый .agents/skills/ засоряет дерево «навыком» из мусора. Пропускаем.
+    const summaryStr = String(solutionSummary || '');
+    if (/\[Model Fallback Error\]|no stdin data received|NOT_FOUND|"error"\s*:|Ошибка \w+ API|ENOENT|ECONNREFUSED|timed out/i.test(summaryStr)) {
+        return { distilled: false, reason: 'Solution summary is an error/fallback — refusing to distill a skill from a non-verified result.' };
+    }
+
     try {
         const repoRoot = findRepoRoot(taskDir);
         const skillSlug = `distilled-${node.id.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}`;

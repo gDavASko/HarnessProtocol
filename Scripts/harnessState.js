@@ -198,6 +198,12 @@ export function normalizeNode(node) {
         // F4: 'classic' (cheap deterministic path) | 'harness' (full LLM-judge path).
         mode: (node.mode === 'classic' || node.mode === 'harness') ? node.mode : recommendNodeMode(validationType),
         artifact_kind: normalizeArtifactKind(node.artifact_kind),
+        // Lever 1′: класс лестницы доказательств (code.testable|code.behavioral|text).
+        // null → выводится из artifact_kind в evidenceLadder.classifyNode. Явно
+        // задаётся для behavioral-узлов (Unity/GUI/рендер), где пол доказательства
+        // требует ещё и console_clean поверх compile+tests.
+        artifact_class: (typeof node.artifact_class === 'string' && node.artifact_class.trim())
+            ? node.artifact_class.trim().toLowerCase() : null,
         // Model family that produced this node ('anthropic'|'google'|'openai'); the
         // ai judge is then chosen from a DIFFERENT family. null = no constraint.
         worker_family: node.worker_family || null,

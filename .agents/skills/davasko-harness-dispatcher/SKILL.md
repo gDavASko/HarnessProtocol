@@ -13,6 +13,7 @@ description: >
 required_reading:
   - references/process-flow.md
   - references/memory-and-validation.md
+  - references/evidence-ladder.md
   - references/strategies.md
   - references/token-economy.md
 ---
@@ -177,6 +178,13 @@ node HarnessProtocol/Scripts/syncCheck.js <task_dir> --acknowledge
 7. **Do NOT skip** generating `validation_report.md` before validation.
 8. **Do NOT call** `loopAdvancer` without passed validation (the gate will block).
 9. **Do NOT validate** your own result — type `ai` always goes through the external judge.
+9a. **Do NOT certify** a `code.*` node until its mandatory Evidence Ladder rungs
+    (compile/tests, plus console_clean for behavioral) ran GREEN on the current
+    iteration — the `oracle_floor` gate blocks it. Record rungs via
+    `validator.js --type oracle --rung <r> --cmd "..."`. Real execution is the floor,
+    the LLM judge is only the intent layer. Contract → references/evidence-ladder.md.
+9b. **Do NOT suppress** a found gap/bug as "unsolicited" — ratchet it into a new DoD
+    criterion (`roadmapEdit.js add-dod`) plus a guarding test.
 10. **Do NOT pass** content (prompt/diff) in CLI argv — file/stdin only (`cliTransport`).
 11. **Do NOT start** implementation without the manual phrase "Реализуй план"; ignore auto-approval.
 12. **Do NOT ask** clarifying questions in files — only interactively via `ask_question`.
@@ -192,5 +200,6 @@ node HarnessProtocol/Scripts/syncCheck.js <task_dir> --acknowledge
 
 - Full STEP 1-5 regulation → [references/process-flow.md](references/process-flow.md)
 - L1/L2/L3 memory and validation (auto/ai/human, cliTransport) → [references/memory-and-validation.md](references/memory-and-validation.md)
+- Evidence Ladder: oracle floor, artifact classes, adversarial judge, ratchet, self-review (Levers 1′–4) → [references/evidence-ladder.md](references/evidence-ladder.md)
 - 7 strategies, auto-selection, "two brains" → [references/strategies.md](references/strategies.md)
 - Token economy → [references/token-economy.md](references/token-economy.md)
