@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { findRepoRoot } from './harnessPaths.js';
+import { captureSourceEvidence, sameSourceEvidence } from './sourceEvidence.js';
 
 // ─── Evidence Ladder (Lever 1′) ──────────────────────────────────────────────
 // Каждый узел проверяется СИЛЬНЕЙШИМ оракулом, который допускает его артефакт.
@@ -112,7 +113,12 @@ async function writeReceipts(taskDir, data) {
  * которое физически нельзя проверить headless). Требует reason. Это честный
  * клапан вместо старой тихой дыры «ai-only для кода».
  */
-export async function recordRung(taskDir, node, rung, result, detail = '') {
+export async function recordRung(taskDir, node, rung, result, detail = '', before = null) {
+    const source = await captureSourceEvidence(taskDir, node);
+    if (before && !sameSourceEvidence(before, source)) {
+        result = 'FAIL';
+        detail = `SOURCE_CHANGED_DURING_CHECK: ${detail}`;
+    }
     const store = await readReceipts(taskDir);
     const nodeId = node.id;
     const iter = node.iteration || 0;
@@ -122,6 +128,7 @@ export async function recordRung(taskDir, node, rung, result, detail = '') {
     }
     store[nodeId].rungs[rung] = {
         result,
+        source,
         detail: String(detail || '').slice(0, 500),
         at: new Date().toISOString()
     };
@@ -140,11 +147,17 @@ export function taskSignature(roadmap) {
     return (roadmap.nodes || []).map(n => `${n.id}#${n.iteration || 0}`).join('|');
 }
 
-export async function recordTaskIntegration(taskDir, roadmap, result, detail = '') {
+export async function recordTaskIntegration(taskDir, roadmap, result, detail = '', before = null) {
+    const source = await captureSourceEvidence(taskDir, roadmap);
+    if (before && !sameSourceEvidence(before, source)) {
+        result = 'FAIL';
+        detail = `SOURCE_CHANGED_DURING_CHECK: ${detail}`;
+    }
     const store = await readReceipts(taskDir);
     store[TASK_KEY] = {
         signature: taskSignature(roadmap),
         result,
+        source,
         detail: String(detail || '').slice(0, 500),
         at: new Date().toISOString()
     };
@@ -161,7 +174,15 @@ export async function evaluateTaskIntegration(taskDir, roadmap) {
     const rec = store[TASK_KEY];
     if (!rec) return { ok: false, reason: 'нет интеграционного прогона' };
     if (rec.result !== 'PASS') return { ok: false, reason: `последний интеграционный прогон: ${rec.result}` };
+    for (const node of roadmap.nodes || []) {
+        for (const item of node.deliverables || []) {
+            const file = typeof item === 'string' ? item : item?.path;
+            if (file && !deliverableResolvesNonEmpty(taskDir, file)) return { ok: false, reason: `missing integration deliverable: ${file}` };
+        }
+    }
     if (rec.signature !== taskSignature(roadmap)) return { ok: false, reason: 'интеграция протухла (узлы менялись после прогона)' };
+    const source = await captureSourceEvidence(taskDir, roadmap);
+    if (!sameSourceEvidence(rec.source, source)) return { ok: false, reason: 'integration is stale: source files or evidence scope changed; rerun checks' };
     return { ok: true, reason: 'интеграция зелёная и свежая' };
 }
 
@@ -175,9 +196,13 @@ function deliverableResolvesNonEmpty(taskDir, dep) {
     const candidates = path.isAbsolute(dep) ? [dep] : roots.map(r => path.resolve(r, dep));
     for (const p of candidates) {
         try {
-            const st = fsSync.statSync(p);
+            const st = fsSync.lstatSync(p);
+            if (st.isSymbolicLink()) continue;
             if (st.isFile() && st.size > 0) return true;
-            if (st.isDirectory()) return true; // каталог-артефакт — допустимо
+            if (st.isDirectory()) {
+                const entries = fsSync.readdirSync(p);
+                if (entries.some(entry => deliverableResolvesNonEmpty(taskDir, path.join(p, entry)))) return true;
+            }
         } catch { /* нет файла */ }
     }
     return false;
@@ -196,14 +221,15 @@ export async function evaluateFloor(taskDir, node) {
     const store = await readReceipts(taskDir);
     const entry = store[node.id];
     const rungs = (entry && entry.iteration === iter) ? (entry.rungs || {}) : {};
+    const source = await captureSourceEvidence(taskDir, node);
 
     const met = [];
     const waived = [];
     const missing = [];
     for (const r of required) {
         const rec = rungs[r];
-        if (rec && rec.result === 'PASS') met.push(r);
-        else if (rec && rec.result === 'WAIVED') waived.push(r);
+        if (rec && rec.result === 'PASS' && sameSourceEvidence(rec.source, source)) met.push(r);
+        else if (rec && rec.result === 'WAIVED' && sameSourceEvidence(rec.source, source)) waived.push(r);
         else missing.push(r);
     }
 

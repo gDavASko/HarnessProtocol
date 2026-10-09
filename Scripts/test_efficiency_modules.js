@@ -59,6 +59,10 @@ async function main() {
     const eligibleL3 = await distillSkillIfEligible(testDir, { id: 'TACT-02', criticality: 'L3', iteration: 1, title: 'Архитектурный инвариант' }, 'Verified invariant');
     assert.strictEqual(eligibleL3.distilled, true, 'L3 node should distill');
     assert(eligibleL3.skillPath.endsWith('SKILL.md'));
+    assert.strictEqual(eligibleL3.activation, 'not_installed');
+    assert.strictEqual(eligibleL3.promotion_requires_review, true);
+    const candidatesRoot = path.join(testDir, '.harness', 'skill-candidates');
+    assert(eligibleL3.skillPath.startsWith(candidatesRoot + path.sep));
     console.log('  ✅ SkillDistiller: синтез скилла работает корректно.');
 
     // 4. HarnessDiskCheckpointer Tests

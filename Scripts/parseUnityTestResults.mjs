@@ -1,46 +1,65 @@
 #!/usr/bin/env node
-// Парсер результатов Unity Test Framework (NUnit3 XML) для рунга `tests` лестницы
-// доказательств. Читает results.xml, печатает сводку и ВЫХОДИТ С НЕНУЛЕВЫМ кодом,
-// если хоть один тест провален/не Passed — так рунг `tests` становится честным
-// детерминированным оракулом для Unity behavioral-узлов.
-//
-// Использование: node parseUnityTestResults.mjs <results.xml>
-import fs from 'fs';
+import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { SaxesParser } from 'saxes';
 
-const file = process.argv[2];
-if (!file) {
-    console.error(JSON.stringify({ error: 'Использование: node parseUnityTestResults.mjs <results.xml>' }));
-    process.exit(2);
+// A summary is not proof: require a complete document and matching leaf results.
+export function parseUnityTestResults(xml, { expectedCount } = {}) {
+    try {
+        if (typeof xml !== 'string' || Buffer.byteLength(xml) > 64 * 1024 * 1024) throw new Error('Invalid or oversized XML report');
+        if (expectedCount !== undefined && (!Number.isSafeInteger(expectedCount) || expectedCount < 1)) throw new Error('expectedCount must be a positive integer');
+        let root;
+        let depth = 0;
+        let caseDepth = null;
+        const cases = [];
+        const parser = new SaxesParser();
+        parser.on('doctype', () => { throw new Error('DOCTYPE is not allowed in test reports'); });
+        parser.on('opentag', tag => {
+            if (depth++ === 0) {
+                if (tag.name !== 'test-run') throw new Error('Expected NUnit3 test-run root');
+                root = tag.attributes;
+            } else if (tag.name === 'test-run') throw new Error('Nested test-run is not allowed');
+            if (tag.name === 'test-case') {
+                if (caseDepth !== null) throw new Error('Nested test-case is not a leaf test result');
+                caseDepth = depth;
+                cases.push(tag.attributes.result);
+            }
+            if (tag.name === 'test-suite' && tag.attributes.result && tag.attributes.result !== 'Passed') throw new Error('A test suite did not pass');
+        });
+        parser.on('closetag', () => { if (depth === caseDepth) caseDepth = null; depth--; });
+        parser.write(xml.replace(/^\uFEFF/, '')).close();
+        if (!root) throw new Error('Missing test-run');
+        const count = (key, optional = false) => {
+            const value = root[key];
+            if (value === undefined && optional) return 0;
+            if (!/^(0|[1-9]\d*)$/.test(value || '') || !Number.isSafeInteger(Number(value))) throw new Error(`Invalid or missing ${key} count`);
+            return Number(value);
+        };
+        const total = count('total');
+        const passed = count('passed');
+        const failed = count('failed');
+        const skipped = count('skipped', true);
+        const inconclusive = count('inconclusive', true);
+        const ok = root.result === 'Passed' && total > 0 && passed === total && failed === 0 && skipped === 0 && inconclusive === 0
+            && cases.length === total && cases.every(result => result === 'Passed')
+            && (expectedCount === undefined || total === expectedCount);
+        return { result: root.result || 'unknown', total, passed, failed, skipped, inconclusive, cases: cases.length, ok,
+            message: ok ? `All ${total} Unity tests passed.` : 'Unity report has missing, non-passing, or inconsistent results.' };
+    } catch (error) {
+        return { ok: false, error: error.message };
+    }
 }
 
-let xml;
-try {
-    xml = fs.readFileSync(file, 'utf-8').replace(/^﻿/, '');
-} catch (err) {
-    console.error(JSON.stringify({ error: `Не удалось прочитать ${file}: ${err.message}` }));
-    process.exit(2);
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+    try {
+        const [file, flag, value, ...extra] = process.argv.slice(2);
+        if (!file || (flag && (flag !== '--expected-count' || !/^[1-9]\d*$/.test(value || ''))) || extra.length) throw new Error('Usage: node parseUnityTestResults.mjs results.xml [--expected-count N]');
+        if (fs.statSync(file).size > 64 * 1024 * 1024) throw new Error('XML report exceeds 64 MiB');
+        const result = parseUnityTestResults(fs.readFileSync(file, 'utf8'), { expectedCount: value ? Number(value) : undefined });
+        console.log(JSON.stringify(result, null, 2));
+        process.exitCode = result.ok ? 0 : 1;
+    } catch (error) {
+        console.error(JSON.stringify({ ok: false, error: error.message }));
+        process.exitCode = 2;
+    }
 }
-
-// NUnit3: <test-run result="Passed" total="N" passed="N" failed="0" ...>
-const attr = (name) => {
-    const m = xml.match(new RegExp(`<test-run\\b[^>]*\\b${name}="([^"]*)"`, 'i'));
-    return m ? m[1] : null;
-};
-const result = attr('result');
-const total = parseInt(attr('total') || '0', 10);
-const passed = parseInt(attr('passed') || '0', 10);
-const failed = parseInt(attr('failed') || '0', 10);
-const skipped = parseInt(attr('skipped') || '0', 10);
-
-// Фолбэк, если атрибута failed нет: считаем <test-case ... result="Failed">.
-const failedCases = (xml.match(/<test-case\b[^>]*\bresult="Failed"/gi) || []).length;
-const effectiveFailed = Number.isFinite(failed) && failed >= 0 ? Math.max(failed, failedCases) : failedCases;
-
-const ok = (result ? /^passed$/i.test(result) : true) && effectiveFailed === 0 && total > 0;
-
-console.log(JSON.stringify({
-    result: result || 'unknown', total, passed, failed: effectiveFailed, skipped,
-    ok, message: ok ? `Все ${total} тестов Unity прошли.` : `Unity-тесты не зелёные: failed=${effectiveFailed}, result=${result}.`
-}, null, 2));
-
-process.exit(ok ? 0 : 1);

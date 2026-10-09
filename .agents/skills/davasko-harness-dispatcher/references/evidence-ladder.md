@@ -1,5 +1,12 @@
 # Evidence Ladder — the certification contract (Levers 1′–4)
 
+Runtime update: receipts now include source bytes and file/directory identity and
+timestamps, checked before/after execution and before advancement. Source changes
+invalidate previous checks even in the same iteration. Missing/empty declared
+outputs block integration. Security scans inspect actual artifact bytes, including
+ignored deliverables; Git errors do not count as clean evidence. See
+[studio runtime](studio-runtime.md) for scope/dependency and execution boundaries.
+
 Quality does not come from more gates that *read a diff*. It comes from **executable
 truth** plus **adversarial verification against the real request**, not a frozen
 checklist. The cheapest verifier (compiler/tests) is also the most reliable for
@@ -43,6 +50,18 @@ floor exists:
 4. The purely visual remainder → a behavioural evidence artifact (scripted-session
    log / screenshot / GIF / scene-state dump) for judge or human. This is where a
    Human Gate legitimately lives — on the remainder, not the whole node.
+
+**Browser/canvas games and render loops (`console_clean` is turnkey, not waived).**
+A game/animation loop in an HTML file is NOT unautomatable — run it headlessly:
+`node HarnessProtocol/Scripts/headlessLoop.mjs <file.html> --frames 3000`. It stubs
+canvas/DOM/`requestAnimationFrame`, pumps N frames (auto-driving the rAF loop and
+firing synthetic input), and exits non-zero on any uncaught exception, `console.error`,
+or a loop that never started; a hang (infinite loop in a frame) trips the validator's
+own timeout. This catches the whole class of loop crashes / NaN cascades / broken
+level-transition code that used to slip through a blind `console_clean` waiver.
+Its blind spot is honest: it verifies the loop RUNS clean, not that it LOOKS right —
+visual/geometry/feel bugs are still the human's call. So waive `console_clean` only
+for a non-loop visual artifact; for anything with a render/update loop, run it.
 
 ## Recording rungs
 
@@ -151,7 +170,8 @@ node HarnessProtocol/Scripts/oracleSuggest.js <dir> --class code.behavioral --no
 
 It auto-detects the stack (node/node-ts/dotnet/unity/python/go/rust) and returns the
 mandatory rungs for the class with concrete `--type oracle` invocations. For Unity it
-returns the batchmode compile / `-runTests` PlayMode / boot-and-grep-log commands.
+returns explicit Harness Unity runner/browser request placeholders. Fill them with
+absolute reviewed request paths; never guess an Editor on PATH or certify logs by grep.
 
 ## The judge: subagent is first-class, not just a fallback
 
@@ -162,6 +182,11 @@ intent layer — it reads `ai_judge_task.md` with the SAME adversarial prompt an
 a strict verdict. Cross-family CLI judges are an enhancement for objectivity, not a
 precondition. The oracle floor (deterministic) is what actually certifies that code
 runs; the judge — CLI or subagent — only covers intent/design on top.
+
+This does not grant a replacement model permission. With a selected studio policy
+or offline execution, failed/denied external judges remain UNVALIDATED; no native
+fallback is automatically authorized. An old fallback stage cannot override the
+current boundary. Native tools are subject to the host's independent authorization.
 
 ## Final integration gate (whole-system truth)
 

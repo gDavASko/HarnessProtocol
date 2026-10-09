@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { callExternalJudge, callSingleJudge } from './cliTransport.js';
@@ -11,6 +11,8 @@ import { scanText } from './securityScan.js';
 import { evaluateRubric } from './rubric.js';
 import { getJudgePool, getQuorumPolicy } from './harnessConfig.js';
 import { findRepoRoot } from './harnessPaths.js';
+import { captureSourceEvidence, resolveDeliverable } from './sourceEvidence.js';
+import { hasStudioPolicy } from './modelPolicy.js';
 import {
     UTF8_BOM,
     getNode,
@@ -25,6 +27,7 @@ import {
 } from './harnessState.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Максимальный объём доказательной базы (diff/артефакты), передаваемой судье.
@@ -137,6 +140,7 @@ async function runAutoValidation(taskDir, commands) {
                 status: 'FAIL',
                 output: (error.stderr || error.message || '').trim().slice(0, 500)
             });
+            break;
         }
     }
 
@@ -309,8 +313,47 @@ function truncateEvidence(text) {
 // Доказательная база для судьи зависит от типа узла (WS-5, гибрид по типу):
 //  - code → реальные изменения рабочего дерева (git diff репозитория + сабмодулей);
 //  - text → содержимое deliverables (сценарии/ГДД/тексты не отражаются в git diff).
-async function gatherEvidence(taskDir, node) {
+function decodeArtifact(bytes, file, strict) {
+    try {
+        let encoding = 'utf-8';
+        if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
+        else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
+        const text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+        if (text.includes('\0')) throw new Error('NUL bytes in text');
+        return text;
+    } catch {
+        if (strict) throw new Error(`Security evidence encoding unsupported or binary: ${file}`);
+        return '[binary/unsupported text artifact; source fingerprint records content]';
+    }
+}
+
+async function gatherEvidence(taskDir, node, { truncate = true } = {}) {
     const kind = node.artifact_kind || 'code';
+    let declared = node.deliverables || [];
+    if (!declared.length && kind === 'code') {
+        const workspace = path.join(taskDir, 'workspace');
+        try { if ((await fs.stat(workspace)).isDirectory()) declared = [workspace]; }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    if (declared.length) {
+        const parts = [];
+        const readArtifact = async file => {
+            const stat = await fs.lstat(file);
+            if (stat.isSymbolicLink()) throw new Error(`Evidence link is not accepted: ${file}`);
+            if (stat.isDirectory()) {
+                const entries = await fs.readdir(file);
+                if (!entries.length) throw new Error(`Empty evidence directory: ${file}`);
+                for (const entry of entries.sort()) await readArtifact(path.join(file, entry));
+            } else {
+                if (!stat.isFile() || stat.size === 0 || stat.size > 64 * 1024 * 1024) throw new Error(`Unreadable, empty or oversized evidence file: ${file}`);
+                const bytes = await fs.readFile(file);
+                parts.push(`\nArtifact: ${file}\n${decodeArtifact(bytes, file, !truncate)}`);
+            }
+        };
+        for (const item of declared) await readArtifact(await resolveDeliverable(taskDir, item));
+        const evidence = parts.join('\n');
+        return { label: 'ACTUAL DECLARED ARTIFACT CONTENTS', evidence: truncate ? truncateEvidence(evidence) : evidence };
+    }
 
     if (kind === 'text') {
         const parts = [];
@@ -331,34 +374,45 @@ async function gatherEvidence(taskDir, node) {
         return { label: 'СОДЕРЖИМОЕ АРТЕФАКТОВ (проверяй по нему)', evidence: truncateEvidence(evidence) };
     }
 
+    if (!truncate) {
+        const repoRoot = findRepoRoot(taskDir);
+        const [changed, untracked] = await Promise.all([
+            execFileAsync('git', ['diff', '--name-only', '-z', '--diff-filter=ACMRT', 'HEAD', '--'], { cwd: repoRoot, maxBuffer: 16 * 1024 * 1024, windowsHide: true }),
+            execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: repoRoot, maxBuffer: 16 * 1024 * 1024, windowsHide: true })
+        ]);
+        const files = [...new Set((changed.stdout + untracked.stdout).split('\0').filter(Boolean))].map(rel => path.resolve(repoRoot, rel));
+        if (files.length) return gatherEvidence(taskDir, { ...node, deliverables: files }, { truncate: false });
+        return { label: 'ACTUAL CHANGED ARTIFACT CONTENTS', evidence: '(no changed or untracked artifacts)' };
+    }
+
     let gitDiff = '';
     try {
-        const repoRoot = findRepoRoot();
+        const repoRoot = findRepoRoot(taskDir);
         const filePaths = (node.deliverables || [])
             .map(d => typeof d === 'string' ? d : d.path)
             .filter(Boolean);
 
-        if (filePaths.length > 0) {
-            const relativePaths = filePaths.map(p => {
-                const abs = path.isAbsolute(p) ? p : path.resolve(taskDir, p);
+        {
+            const absolutePaths = await Promise.all(filePaths.map(p => resolveDeliverable(taskDir, p)));
+            const relativePaths = absolutePaths.map(abs => {
                 return path.relative(repoRoot, abs).replace(/\\/g, '/');
             });
 
             // Получаем diff измененных отслеживаемых файлов
-            const { stdout } = await execAsync(`git diff HEAD --submodule=diff -- ${relativePaths.map(p => `"${p}"`).join(' ')}`, {
+            const { stdout } = await execFileAsync('git', ['diff', 'HEAD', '--submodule=diff', '--', ...relativePaths], {
                 cwd: repoRoot,
                 maxBuffer: 64 * 1024 * 1024
             });
-            gitDiff = parseCompactDiff(stdout.trim());
+            gitDiff = truncate ? parseCompactDiff(stdout.trim()) : stdout.trim();
 
             // Проверяем статус каждого файла на предмет untracked
-            for (const relPath of relativePaths) {
+            const { stdout: untracked } = await execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', ...relativePaths], { cwd: repoRoot, maxBuffer: 16 * 1024 * 1024 });
+            for (const relPath of untracked.split('\0').filter(Boolean)) {
                 try {
-                    const { stdout: status } = await execAsync(`git status --porcelain -- "${relPath}"`, { cwd: repoRoot });
-                    if (status.startsWith('?? ')) {
+                    {
                         const absPath = path.resolve(repoRoot, relPath);
                         const fileContent = await fs.readFile(absPath, 'utf-8');
-                        const truncated = fileContent.length > 20000 
+                        const truncated = truncate && fileContent.length > 20000
                             ? fileContent.slice(0, 20000) + '\n...[содержимое файла усечено]'
                             : fileContent;
                         gitDiff += `\n\n=== NEW UNTRACKED FILE ${relPath} ===\n${truncated}`;
@@ -366,12 +420,10 @@ async function gatherEvidence(taskDir, node) {
                 } catch { /* ignore */ }
             }
         }
-    } catch (err) {
-        gitDiff = `Не удалось получить git diff: ${err.message}`;
-    }
+    } catch (err) { throw new Error(`Evidence collection failed: ${err.message}`); }
 
     if (!gitDiff) gitDiff = '(нет изменений в рабочем дереве)';
-    return { label: 'ФАКТИЧЕСКИЕ ИЗМЕНЕНИЯ (git diff HEAD)', evidence: truncateEvidence(gitDiff) };
+    return { label: 'ФАКТИЧЕСКИЕ ИЗМЕНЕНИЯ (git diff HEAD)', evidence: truncate ? truncateEvidence(gitDiff) : gitDiff };
 }
 
 // Собирает промпт судьи (system + user). Используется и для внешнего CLI-судьи,
@@ -589,8 +641,6 @@ async function runAiValidation(taskDir, node) {
     // Phase-2 wiring: dispatch judges via judgeSelector using LIVE judges from the
     // probe. L0 nodes never reach the LLM judge. UNVALIDATED must never PASS.
     const criticality = deriveCriticality(node);
-    const { chain, model, probe, fallback, live_judges = [] } = await getAvailableJudgeChain();
-
     // L0 short-circuit: deterministic oracle is the verdict — no LLM judge. If we
     // reached runAiValidation for an L0 node, the caller did not provide an oracle
     // (--cmd). Return a synthetic verdict that marks the node UNVALIDATED without
@@ -599,10 +649,12 @@ async function runAiValidation(taskDir, node) {
         return {
             overall: 'UNVALIDATED',
             oracle_only: true,
-            probe_summary: probeSummary(probe),
+            probe_summary: 'not probed: deterministic L0 node',
             comment: 'L0: deterministic oracle required (compile/test) — no LLM judge invoked. Provide --cmd or lower criticality.'
         };
     }
+
+    const { chain, model, probe, fallback, live_judges = [] } = await getAvailableJudgeChain();
 
     // Isolation doctrine: the judge is an INDEPENDENT session (fresh-context
     // subagent), never the worker's own session. It MAY be the same model family —
@@ -650,6 +702,9 @@ async function runAiValidation(taskDir, node) {
     // human/IDE feeds the verdict back via --judge-file). This is the SAME code path
     // as the legacy fallback_required branch.
     if (chosenChain.every(id => id === 'claude-subagent')) {
+        if (hasStudioPolicy() || process.env.HARNESS_OFFLINE === '1') {
+            return { overall: 'UNVALIDATED', comment: 'Native judge fallback is not authorized by the selected dispatch boundary.' };
+        }
         return {
             overall: null,
             fallback_required: true,
@@ -737,6 +792,9 @@ async function runAiValidation(taskDir, node) {
 
     if (!judged.ok) {
         const tried = (judged.attempts || []).map(a => `${a.bin}: ${a.error}`).join(' | ');
+        if (hasStudioPolicy() || process.env.HARNESS_OFFLINE === '1') {
+            return { overall: 'UNVALIDATED', comment: `External judge failed; no native fallback authorized: ${tried}` };
+        }
         return {
             overall: null,
             fallback_required: true,
@@ -778,13 +836,14 @@ async function runAiValidation(taskDir, node) {
 // (git diff для кода / артефакты), и пишет рецепт рунга `security`. Turnkey —
 // не требует внешнего инструмента.
 async function runSecurityRung(taskDir, node) {
-    const { evidence } = await gatherEvidence(taskDir, node);
+    const before = await captureSourceEvidence(taskDir, node);
+    const { evidence } = await gatherEvidence(taskDir, node, { truncate: false });
     const scan = scanText(evidence);
     const detail = scan.clean
         ? 'security scan: чисто'
         : 'security: ' + scan.findings.map(f => `${f.desc} (${f.sample})`).join('; ');
-    await recordRung(taskDir, node, RUNGS.SECURITY, scan.clean ? 'PASS' : 'FAIL', detail);
-    return { clean: scan.clean, findings: scan.findings, detail };
+    const receipt = await recordRung(taskDir, node, RUNGS.SECURITY, scan.clean ? 'PASS' : 'FAIL', detail, before);
+    return { clean: scan.clean && receipt.rungs[RUNGS.SECURITY].result === 'PASS', findings: scan.findings, detail };
 }
 
 async function main() {
@@ -819,9 +878,11 @@ async function main() {
             console.error(JSON.stringify({ error: 'TRIVIAL_ORACLE', rejected_cmd: trivial, message: `«${trivial}» не является реальной интеграционной проверкой.` }));
             process.exit(1);
         }
+        const before = await captureSourceEvidence(options.taskDir, roadmap);
         const auto = await runAutoValidation(options.taskDir, options.commands);
         const detail = auto.results.map(item => item.command ? `${item.command}: ${item.status}` : item.output).join('; ');
-        await recordTaskIntegration(options.taskDir, roadmap, auto.overall, detail);
+        const receipt = await recordTaskIntegration(options.taskDir, roadmap, auto.overall, detail, before);
+        auto.overall = receipt.result;
         console.log(JSON.stringify({
             type: 'oracle', rung: 'integration', result: auto.overall, checks: auto.results,
             message: auto.overall === 'PASS'
@@ -882,10 +943,12 @@ async function main() {
             }));
             process.exit(1);
         }
+        const before = await captureSourceEvidence(options.taskDir, node);
         const auto = await runAutoValidation(options.taskDir, options.commands);
         const detail = auto.results.map(item =>
             item.command ? `${item.command}: ${item.status}` : item.output).join('; ');
-        const rec = await recordRung(options.taskDir, node, rung, auto.overall, detail);
+        const rec = await recordRung(options.taskDir, node, rung, auto.overall, detail, before);
+        auto.overall = rec.rungs[rung].result;
         console.log(JSON.stringify({
             type: 'oracle', node: node.id, rung, result: auto.overall,
             iteration: rec.iteration, checks: auto.results,
@@ -893,6 +956,7 @@ async function main() {
                 ? `Рунг [${rung}] зафиксирован зелёным (итерация ${rec.iteration}).`
                 : `Рунг [${rung}] провален — исправь и прогони заново перед сертификацией.`
         }, null, 2));
+        process.exitCode = auto.overall === 'PASS' ? 0 : 1;
         return;
     }
 
@@ -907,6 +971,10 @@ async function main() {
             process.exit(1);
         }
     } else if (options.type === 'ai' && options.judgeFile) {
+        if (hasStudioPolicy() || process.env.HARNESS_OFFLINE === '1') {
+            console.error(JSON.stringify({ error: 'GATE_FAILED', gate: 'native_judge_not_authorized', message: 'A cached fallback stage cannot override the current model boundary.' }));
+            process.exit(1);
+        }
         // Вердикт субагента-судьи принимается ТОЛЬКО в fallback-режиме,
         // объявленном самим валидатором (гейт от самовалидации в обход судьи).
         if (state.stage !== 'awaiting_subagent_validation') {
@@ -1002,6 +1070,7 @@ async function main() {
 
     switch (options.type) {
         case 'auto': {
+            const before = await captureSourceEvidence(options.taskDir, node);
             const auto = await runAutoValidation(options.taskDir, options.commands);
             validationResult = auto.overall;
             validationComment = auto.results.map(item =>
@@ -1011,7 +1080,9 @@ async function main() {
             // No-op команды не засчитываются (TRIVIAL), даже если формально прошли.
             {
                 const rr = (auto.overall === 'PASS' && options.commands.some(isTrivialOracleCommand)) ? 'TRIVIAL' : auto.overall;
-                await recordRung(options.taskDir, node, options.rung || RUNGS.TESTS, rr, validationComment);
+                const rung = options.rung || RUNGS.TESTS;
+                const receipt = await recordRung(options.taskDir, node, rung, rr, validationComment, before);
+                if (receipt.rungs[rung].result !== 'PASS') validationResult = auto.overall = 'FAIL';
             }
             await updateReportVerdict(options.taskDir, validationResult, validationComment);
             updateRoadmapAfterValidation(roadmap, node, validationResult, validationComment);
@@ -1033,6 +1104,7 @@ async function main() {
             // for nodes with NO cheap oracle. The subagent-fallback (--judge-file) and
             // pure-ai (no --cmd) paths are unchanged.
             if (!options.judgeFile && options.commands.length > 0) {
+                const before = await captureSourceEvidence(options.taskDir, node);
                 const auto = await runAutoValidation(options.taskDir, options.commands);
                 validationResult = auto.overall;
                 validationComment = `[oracle, judge skipped] ` + auto.results.map(item =>
@@ -1040,7 +1112,9 @@ async function main() {
                 ).join('; ');
                 {
                     const rr = (auto.overall === 'PASS' && options.commands.some(isTrivialOracleCommand)) ? 'TRIVIAL' : auto.overall;
-                    await recordRung(options.taskDir, node, options.rung || RUNGS.TESTS, rr, validationComment);
+                    const rung = options.rung || RUNGS.TESTS;
+                    const receipt = await recordRung(options.taskDir, node, rung, rr, validationComment, before);
+                    if (receipt.rungs[rung].result !== 'PASS') validationResult = auto.overall = 'FAIL';
                 }
                 await updateReportVerdict(options.taskDir, validationResult, validationComment);
                 updateRoadmapAfterValidation(roadmap, node, validationResult, validationComment);
@@ -1303,7 +1377,7 @@ async function main() {
     console.log(JSON.stringify(response, null, 2));
 }
 
-main().then(() => process.exit(0)).catch(err => {
+main().then(() => process.exit(process.exitCode || 0)).catch(err => {
     console.error(JSON.stringify({ error: err.message, stack: err.stack?.split('\n').slice(0, 3) }));
     process.exit(1);
 });

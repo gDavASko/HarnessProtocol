@@ -30,13 +30,13 @@ export function detectProjectType(dir) {
 
 // Предложения команд по типу проекта. console_clean — только для behavioral.
 const SUGGESTIONS = {
-    'node':    { compile: 'node --check <file.js>',        tests: 'npm test',                 console_clean: 'node <scripted-sim.mjs>' },
-    'node-ts': { compile: 'npx tsc --noEmit',              tests: 'npm test',                 console_clean: 'node <scripted-sim.mjs>' },
+    'node':    { compile: 'node --check <file.js>',        tests: 'npm test',                 console_clean: 'node Scripts/headlessLoop.mjs <file.html> --frames 3000' },
+    'node-ts': { compile: 'npx tsc --noEmit',              tests: 'npm test',                 console_clean: 'node Scripts/headlessLoop.mjs <file.html> --frames 3000' },
     'dotnet':  { compile: 'dotnet build -warnaserror',     tests: 'dotnet test',              console_clean: 'dotnet run --project <smoke>' },
     'unity':   {
-        compile: 'Unity -batchmode -quit -projectPath . -logFile compile.log && ! grep -E "error CS" compile.log',
-        tests:   'Unity -batchmode -runTests -testPlatform PlayMode -testResults results.xml -logFile - && node Scripts/parseUnityTestResults.mjs results.xml',
-        console_clean: 'Unity -batchmode -quit -projectPath . -executeMethod HarnessSmoke.Boot -logFile play.log && ! grep -E "Exception|error|NullReference" play.log'
+        compile: 'node <absolute-HarnessProtocol>/Scripts/unityRunner.mjs <absolute-approved-compile-request.json>',
+        tests:   'node <absolute-HarnessProtocol>/Scripts/unityRunner.mjs <absolute-approved-test-request.json>',
+        console_clean: 'node <absolute-HarnessProtocol>/Scripts/webglSmoke.mjs <absolute-approved-browser-request.json>'
     },
     'python':  { compile: 'python -m py_compile <file.py>', tests: 'pytest -q',               console_clean: 'python <scripted_sim.py>' },
     'go':      { compile: 'go build ./...',                 tests: 'go test ./...',            console_clean: 'go run ./cmd/smoke' },

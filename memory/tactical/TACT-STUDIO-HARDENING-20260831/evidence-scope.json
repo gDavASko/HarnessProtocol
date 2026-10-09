@@ -1,0 +1,17 @@
+{
+  "source_roots": [
+    "E:/Projects/HarnessProtocol/Scripts",
+    "E:/Projects/HarnessProtocol/Tests",
+    "E:/Projects/HarnessProtocol/docs",
+    "E:/Projects/HarnessProtocol/.agents/skills/davasko-harness-dispatcher",
+    "E:/Projects/HarnessProtocol/skill/davasko-harness-dispatcher",
+    "C:/Users/DavASko/.agents/skills/davasko-harness-dispatcher",
+    "E:/Projects/HarnessProtocol/package.json",
+    "E:/Projects/HarnessProtocol/package-lock.json",
+    "E:/Projects/HarnessProtocol/config/studio-model-policy.example.json",
+    "E:/Projects/DavASkoMetaGames/docs/tooling",
+    "E:/Projects/DavASkoMetaGames/templates/tooling",
+    "E:/Projects/HarnessProtocol/.harness/studio-hardening-20260831/tools/check-delivery.mjs"
+  ],
+  "schema_version": 1
+}

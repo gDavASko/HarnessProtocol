@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import readline from 'readline';
 import { findRepoRoot } from './harnessPaths.js';
-import { evaluateTaskIntegration } from './evidenceLadder.js';
+import { evaluateTaskIntegration, evaluateFloor } from './evidenceLadder.js';
 import {
     readClean,
     readState,
@@ -45,7 +45,8 @@ async function runSessionLogger(taskDir, roadmap, insight) {
     const deliverables = [];
     for (const n of (roadmap.nodes || [])) {
         for (const d of (n.deliverables || [])) {
-            if (!deliverables.includes(d)) deliverables.push(d);
+            const file = typeof d === 'string' ? d : d?.path;
+            if (file && !deliverables.includes(file)) deliverables.push(file);
         }
     }
     const changedFilesArg = deliverables.length > 0 ? deliverables.join(',') : null;
@@ -114,6 +115,10 @@ async function distributeRules(rulesContent) {
 }
 
 async function runContinuousLearning(taskDir) {
+    if (process.env.HARNESS_OFFLINE === '1' || process.env.HARNESS_CONTINUOUS_LEARNING !== '1') {
+        console.error('[loopAdvancer] Optional post-task model review skipped (offline or not explicitly enabled).');
+        return;
+    }
     const judgePath = path.resolve(__dirname, 'cli-judge.js');
     const reportPath = path.resolve(taskDir, 'validation_report.md');
     
@@ -249,6 +254,14 @@ async function main() {
     let result;
 
     if (opts.status === 'SUCCESS') {
+        if (process.env.HARNESS_ENFORCE_FLOOR !== '0') {
+            const floor = await evaluateFloor(opts.taskDir, node);
+            if (!floor.floorMet) {
+                console.error(JSON.stringify({ error: 'GATE_FAILED', gate: 'evidence_freshness', node: node.id,
+                    message: 'Source changed or evidence is missing since validation; rerun the required checks.', missing: floor.missing }));
+                process.exit(1);
+            }
+        }
         // Успешный шаг
         node.status = 'DONE';
         node.last_error = null;
@@ -314,7 +327,7 @@ async function main() {
                 }
 
                 // Interactive prompt
-                const isInteractive = process.stdout.isTTY && process.stdin.isTTY && process.env.CI !== '1';
+                const isInteractive = process.env.HARNESS_CONFIRM_COMPLETION === '1' && process.stdout.isTTY && process.stdin.isTTY && process.env.CI !== '1';
                 if (isInteractive) {
                     const answer = await askQuestion("Я выполнил текущие задачи. Сессия завершена и задача решена успешно? (y/n): ");
                     if (answer.toLowerCase() !== 'y') {
@@ -322,7 +335,7 @@ async function main() {
                         process.exit(0);
                     }
                 } else {
-                    console.error("[loopAdvancer] Обнаружен неинтерактивный режим/CI. Автоматически подтверждаем завершение сессии.");
+                    console.error('[loopAdvancer] Technical completion follows verified gates; no additional human approval is inferred.');
                 }
 
                 roadmap.status = 'DONE';
@@ -337,6 +350,9 @@ async function main() {
                 };
 
                 // Run sessionLogger
+                // The logger reads the persisted roadmap, so publish the proved
+                // completion first rather than recording the previous node count.
+                await writeRoadmap(opts.taskDir, roadmap);
                 await runSessionLogger(opts.taskDir, roadmap, opts.insight);
 
                 // Call cli-judge.js for continuous learning

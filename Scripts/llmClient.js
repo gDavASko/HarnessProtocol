@@ -2,6 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import { runCliModel } from './cliTransport.js';
+import { authorizeModelCall, assertOnline, hasStudioPolicy, loadModelPolicy, ModelPolicyError } from './modelPolicy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,7 +14,7 @@ async function loadEnv(dirPath) {
         const content = await fs.readFile(envPath, 'utf-8');
         for (const line of content.split(/\r?\n/)) {
             const match = line.match(/^\s*([\w_]+)\s*=\s*(.+?)\s*$/);
-            if (match) {
+            if (match && !match[1].toUpperCase().startsWith('HARNESS_')) {
                 process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
             }
         }
@@ -40,72 +42,94 @@ async function loadConfig() {
     return config;
 }
 
+async function callBoundedCli(bin, model, role, systemPrompt, userPrompt, options) {
+    assertOnline(options, 'cli');
+    if (hasStudioPolicy(options) && !role) throw new ModelPolicyError('direct calls require an explicit role');
+    const res = await runCliModel({
+        ...options, bin, model, role: role || 'worker', effort: options.effort ?? 'default',
+        workDir: options.workDir || options.runDir || process.env.HARNESS_RUN_DIR || process.cwd(),
+        systemText: systemPrompt,
+        userText: options.jsonMode ? `${userPrompt}\n\nReturn only valid JSON, without Markdown fences.` : userPrompt
+    });
+    if (!res.ok) { const error = new Error(res.error); error.code = res.errorCode; throw error; }
+    return res.text;
+}
+
+async function callGeminiHttp(model, role, systemPrompt, userPrompt, options) {
+    const effort = options.effort ?? 'default';
+    if (hasStudioPolicy(options) && effort !== 'default') throw new ModelPolicyError('Gemini HTTP transport cannot set this explicit reasoning effort');
+    const fake = assertOnline(options, 'http');
+    const apiKey = process.env[options.envVar || 'GEMINI_API_KEY'];
+    if (!apiKey && !fake) throw new Error(`Missing ${options.envVar || 'GEMINI_API_KEY'} for role ${role}`);
+    const payload = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: userPrompt }] }],
+        generationConfig: { temperature: options.temperature ?? 0.2 }
+    };
+    if (options.jsonMode) payload.generationConfig.responseMimeType = 'application/json';
+    const permit = await authorizeModelCall({ provider: 'gemini-http', model, role, effort }, options);
+    if (permit.maxOutputTokens) payload.generationConfig.maxOutputTokens = permit.maxOutputTokens;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey || 'test-only')}`;
+    // Recheck offline after asynchronous reservation. No path from a fake
+    // transport can fall through to real fetch.
+    const dispatch = assertOnline(options, 'http') || fetch;
+    const response = await dispatch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload), signal: AbortSignal.timeout(permit.timeoutMs)
+    });
+    if (!response.ok) throw new Error(`Gemini HTTP ${response.status}: request failed`);
+    let data;
+    if (permit.maxOutputTokens && response.body?.getReader) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            received += value.byteLength;
+            if (received > Math.max(16384, permit.maxOutputTokens * 8)) {
+                await reader.cancel();
+                throw new ModelPolicyError('HTTP response size allowance exceeded');
+            }
+            chunks.push(Buffer.from(value));
+        }
+        data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } else data = await response.json();
+    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!answer) throw new Error(`Empty response from ${model}`);
+    // The native cap bounds generated tokens; this additional conservative byte
+    // cap bounds retained output independently of vendor usage metadata.
+    if (permit.maxOutputTokens && Buffer.byteLength(answer, 'utf8') > permit.maxOutputTokens) throw new ModelPolicyError('output allowance exceeded');
+    return answer;
+}
+
 export async function callLLM(role, systemPrompt, userPrompt, options = {}) {
     // Поднимаемся на уровень kbpro-ai-docs (2 папки вверх от Scripts), чтобы найти .env
     await loadEnv(path.resolve(__dirname, '../../..')); 
     await loadEnv(path.resolve(__dirname, '../..'));
     await loadEnv(process.cwd());
 
+    loadModelPolicy(options);
     const config = await loadConfig();
     const modelConfig = config.roles[role];
     if (!modelConfig) {
         throw new Error(`Роль '${role}' не найдена в llm-config.json`);
     }
+    options = { ...options, effort: options.effort ?? modelConfig.effort ?? 'default' };
 
     if (modelConfig.provider === 'gemini') {
-        // Герметичность: HARNESS_OFFLINE=1 запрещает живые HTTP-вызовы (тесты,
-        // офлайн-прогоны). Ошибка ловится штатным фолбэком, а не роняет прогон.
-        if (process.env.HARNESS_OFFLINE === '1') {
-            throw new Error(`[offline] живые LLM-вызовы отключены (HARNESS_OFFLINE=1), роль ${role}`);
-        }
-        const apiKey = process.env[modelConfig.env_var];
-        if (!apiKey) {
-            throw new Error(`Не задана переменная окружения ${modelConfig.env_var} для роли ${role}`);
-        }
-
-        // Модель HTTP-Gemini выносится в env, чтобы не хардкодить протухший ID
-        // (gemini-2.0-flash → 404). GEMINI_HTTP_MODEL перекрывает конфиг.
-        const httpModelId = process.env.GEMINI_HTTP_MODEL || modelConfig.model_id;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${httpModelId}:generateContent?key=${apiKey}`;
-        
-        const payload = {
-            systemInstruction: {
-                parts: [{ text: systemPrompt }]
-            },
-            contents: [
-                { parts: [{ text: userPrompt }] }
-            ],
-            generationConfig: {
-                temperature: modelConfig.temperature || 0.2
-            }
-        };
-
-        if (options.jsonMode) {
-            payload.generationConfig.responseMimeType = "application/json";
-        }
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+        const modelId = options.model || process.env.GEMINI_HTTP_MODEL || modelConfig.model_id;
+        return callGeminiHttp(modelId, role, systemPrompt, userPrompt, {
+            ...options, temperature: options.temperature ?? modelConfig.temperature, envVar: modelConfig.env_var
         });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Ошибка Gemini API: ${response.status} ${response.statusText} - ${errText}`);
-        }
-
-        const data = await response.json();
-        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (!textResponse) {
-            throw new Error(`Пустой ответ от модели: ${JSON.stringify(data)}`);
-        }
-
-        return textResponse;
     }
 
     if (modelConfig.access_type === 'cli') {
+        if (hasStudioPolicy(options) || options.testHarness) {
+            const bin = String(modelConfig.cli_command || '').trim().split(/\s+/)[0];
+            return callBoundedCli(bin, options.model || modelConfig.model_id, role, systemPrompt, userPrompt, options);
+        }
+        assertOnline(options, 'cli');
         return new Promise((resolve, reject) => {
             let cmdStr = modelConfig.cli_command;
             if (!cmdStr) {
@@ -135,7 +159,9 @@ export async function callLLM(role, systemPrompt, userPrompt, options = {}) {
             const command = parts[0];
             const args = parts.slice(1);
 
-            const child = spawn(command, args, { shell });
+            assertOnline(options, 'cli');
+            if (hasStudioPolicy(options)) throw new ModelPolicyError('legacy command templates cannot dispatch under a studio policy');
+            const child = spawn(command, args, { shell, windowsHide: true });
 
             let stdoutData = '';
             let stderrData = '';
@@ -175,6 +201,7 @@ export async function callLLM(role, systemPrompt, userPrompt, options = {}) {
  * Определяет, является ли ошибка повторяемой (можно переключиться на другую модель)
  */
 function isRetryableError(err) {
+    if (err.code === 'MODEL_POLICY_DENIED' || err.code === 'HARNESS_OFFLINE') return false;
     const msg = (err.message || '').toLowerCase();
     return msg.includes('429') ||
            msg.includes('500') ||
@@ -246,42 +273,14 @@ export async function callLLMDirect(modelEntry, systemPrompt, userPrompt, option
     const name = modelEntry.name;
     const temperature = options.temperature ?? 0.2;
 
-    // Попытка 1: Gemini HTTP API (если есть ключ)
+    loadModelPolicy(options);
+    // Resolve the final HTTP model (including the env override) before checking
+    // authorization. A profile never authorizes only the display/catalog name.
     if (name.startsWith('Gemini') || name.startsWith('gemini')) {
-        if (process.env.HARNESS_OFFLINE === '1') {
-            throw new Error(`[offline] живые LLM-вызовы отключены (HARNESS_OFFLINE=1) для ${name}`);
-        }
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (apiKey) {
-            // GEMINI_HTTP_MODEL перекрывает маппинг вымышленного имени на API-ID —
-            // чтобы протухший дефолт (gemini-2.0-flash → 404) правился без кода.
-            const modelId = process.env.GEMINI_HTTP_MODEL || mapToGeminiApiId(name);
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
-            const payload = {
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                contents: [{ parts: [{ text: userPrompt }] }],
-                generationConfig: { temperature }
-            };
-            if (options.jsonMode) {
-                payload.generationConfig.responseMimeType = "application/json";
-            }
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                signal: AbortSignal.timeout(60000)
-            });
-
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`Gemini HTTP ${response.status}: ${errText.slice(0, 200)}`);
-            }
-
-            const data = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error(`Пустой ответ от ${modelId}`);
-            return text;
+        assertOnline(options, 'http');
+        if (process.env.GEMINI_API_KEY || options.testHarness) {
+            const modelId = options.model || process.env.GEMINI_HTTP_MODEL || modelEntry.model_id || mapToGeminiApiId(name);
+            return callGeminiHttp(modelId, options.role, systemPrompt, userPrompt, { ...options, temperature });
         }
     }
 
@@ -303,6 +302,12 @@ export async function callLLMDirect(modelEntry, systemPrompt, userPrompt, option
  * Вспомогательная: вызов модели через CLI
  */
 async function callCliDirect(provider, modelName, systemPrompt, userPrompt, options = {}) {
+    if (hasStudioPolicy(options) || options.testHarness) {
+        // Legacy gemini template actually launches agy. Authorize that provider.
+        const bin = provider === 'gemini' ? 'agy' : provider;
+        return callBoundedCli(bin, options.model || modelName, options.role, systemPrompt, userPrompt, options);
+    }
+    assertOnline(options, 'cli');
     const configPath = path.resolve(__dirname, 'llm-config.json');
     let config = {};
     try {
@@ -343,7 +348,9 @@ async function callCliDirect(provider, modelName, systemPrompt, userPrompt, opti
             shell = true;
         }
 
-        const child = spawn(command, args, { shell });
+        assertOnline(options, 'cli');
+        if (hasStudioPolicy(options)) throw new ModelPolicyError('legacy command templates cannot dispatch under a studio policy');
+        const child = spawn(command, args, { shell, windowsHide: true });
 
         let stdoutData = '';
         let stderrData = '';
@@ -390,6 +397,7 @@ export async function callLLMWithFallback(role, systemPrompt, userPrompt, option
     const config = await loadConfig();
     const roleConfig = config.roles[role];
     if (!roleConfig) throw new Error(`Роль '${role}' не найдена в llm-config.json`);
+    options = { ...options, role, effort: options.effort ?? roleConfig.effort ?? 'default' };
 
     const tier = roleConfig.tier || 'medium';
     const preferFree = roleConfig.prefer_free || false;
@@ -410,6 +418,7 @@ export async function callLLMWithFallback(role, systemPrompt, userPrompt, option
             console.warn(`[llmClient] Fallback → ${candidate.name}`);
             return await callLLMDirect(candidate, systemPrompt, userPrompt, {
                 ...options,
+                role,
                 temperature: options.temperature ?? roleConfig.temperature
             });
         } catch (fallbackErr) {
@@ -430,9 +439,13 @@ export async function callLLMWithFallback(role, systemPrompt, userPrompt, option
                 console.warn(`[llmClient] Каскад вниз → ${tierOrder[i]}:${candidate.name}`);
                 return await callLLMDirect(candidate, systemPrompt, userPrompt, {
                     ...options,
+                    role,
                     temperature: options.temperature ?? roleConfig.temperature
                 });
-            } catch { continue; }
+            } catch (err) {
+                if (err.code === 'MODEL_POLICY_DENIED' || err.code === 'HARNESS_OFFLINE') throw err;
+                continue;
+            }
         }
     }
 

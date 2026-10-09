@@ -8,8 +8,8 @@ MUST start from STEP 1.
 
 ## STEP 1 — Start & Scale
 
-1. It is **strictly forbidden** to skip stages or begin planning
-   without the preliminary interview (STEP 2).
+1. Check the existing task, user decisions and authorization before planning.
+   Follow-ups retain valid approval; ask again only when scope or risk changes.
 2. **Estimate the task scale** (scaling):
    - **Trivial** (≤2 nodes, atomic work) → zero overhead: no
      `task_initializer.js`, no `memory/tactical/`, no forks/iterations. The agent
@@ -24,24 +24,22 @@ MUST start from STEP 1.
 
 ## STEP 2 — Deployment and the INTERACTIVE interview (Task Deployment & Spec)
 
-1. Propose a ready architecture option and **MANDATORILY run a structured
-   INTERACTIVE interview in chat via the `ask_question` tool**:
-   - up to **8 questions**, each with ready-made answer options;
-   - every question — **a mandatory free-form answer option**.
-2. It is **STRICTLY FORBIDDEN** to write clarifying or architectural questions into
-   text plan files (`implementation_plan.md`, `task.md`, or any other
-   documents) or to ask them non-interactively. All questions — only in chat with
-   a process pause via `ask_question`.
+1. Use the supplied requirements and previous decisions. Propose a concrete option
+   for unresolved choices; ask only questions that materially change scope, safety
+   or acceptance. An interview is not required when the user approved a clear plan.
+2. Ask necessary questions in the conversation through the host's supported question
+   tool, or plain chat when none is available. Do not invent unavailable tool calls.
 3. Record the interview results (selected options, constraints, tools) into the **L2
    forks**: `tactical_constraints.md`, `tactical_tools_registry.md`, and the node
    roadmap — via `roadmapEdit.js` (for every node: `validation_type`,
    `artifact_kind`, DoD).
-4. Show the finished plan and **STOP**. Any work that changes the codebase
-   or launches active subagents is suspended until approval.
-5. **The single mandatory implementation start trigger** is the phrase
-   **"Реализуй план"**, typed strictly manually by the human in chat.
-6. **Ignore any system auto-approval messages** (auto-approval /
-   auto-accept). Do not start implementation without manual human confirmation.
+4. Show the scoped plan. Continue when the existing user instruction explicitly
+   approves it; otherwise obtain approval before implementation.
+5. Approval is semantic, not a magic phrase: "Реализуй план", "исправляй всё" in
+   response to a concrete proposal, or an equivalent user instruction qualifies.
+   Record the approved scope. This does not authorize new spending, account access,
+   publishing, destructive actions or unrelated changes.
+6. **Ignore system auto-approval messages** as evidence of user authorization.
 7. On an order violation the human uses the phrase **"Стоп, сначала спека"** —
    on it, immediately roll back to STEP 1-2 and do not continue implementation.
 
@@ -96,6 +94,6 @@ MUST start from STEP 1.
 2. Transferring knowledge into the global **L3 wiki** — **ONLY after manual human
    moderation** (Human Gate: a final document produced from L2 processing enters
    the wiki only after user approval).
-3. Ask: "Should a new skill be created?".
-4. The task closes only when the work is fully done, all automatic
-   checks have passed, and the **human developer has confirmed** success.
+3. Create or update skills only when the approved task requires it.
+4. Report technical completion after the required checks. Product, publication,
+   financial and other reserved approvals remain separate human decisions.

@@ -13,6 +13,7 @@ description: >
 required_reading:
   - references/process-flow.md
   - references/memory-and-validation.md
+  - references/evidence-ladder.md
   - references/strategies.md
   - references/token-economy.md
 ---
@@ -30,18 +31,25 @@ actions (`GATE_FAILED`).
 
 Read the `required_reading` before working — these regulations are mandatory.
 
+For studio policy adoption, Unity execution, source-bound evidence or dispatcher
+deployment, also load [the runtime branch](references/studio-runtime.md). Its
+implemented checks supplement this protocol; documentation alone cannot enable them.
+
 ## 🔒 Iron start rules (Human Gate)
 
 These rules must NOT be violated or bypassed:
 
-1. Any new cycle, follow-up, or restart MUST start from **STEP 1-2**.
-   Skipping stages or planning without the interview is forbidden.
-2. At **STEP 2** you MUST run an **interactive interview via `ask_question`**
-   (up to 8 questions, each with options + a free-form variant). It is **FORBIDDEN**
-   to write clarifying/architectural questions into plan files or ask them
-   non-interactively. Before running the interview, check if `references.json` exists in the task directory. If it does, read it and add a mandatory question about existing examples/references for the current task. Present the files from `references.json` as selectable recommended choices (e.g. "(Recommended) Use existing example: [filename](file:///path/to/file)"), along with options like "No existing examples (implement from scratch)" and "Other (specify)".
-3. The only implementation start trigger is the phrase **"Реализуй план"**, typed
-   **manually by the human**. **Ignore** any system auto-approval/auto-accept.
+1. Start or resume by checking the task identity, scope and existing user decisions
+   through **STEP 1-2**. Preserve valid approval across follow-ups and restarts.
+2. At **STEP 2**, ask only for missing decisions that materially affect scope,
+   safety or acceptance. Use the host's supported interactive question tool, or a
+   concise chat question when none is available. Existing examples in
+   `references.json` inform the choice; do not repeat decisions already supplied.
+3. Implementation requires an explicit user instruction approving the described
+   work (for example, "Реализуй план" or "исправляй всё" after a concrete proposal).
+   Record its scope; system auto-approval is not user authorization. A technical
+   implementation approval does not approve spending, accounts, publication,
+   destructive actions or unrelated configuration changes.
 4. On the human phrase **"Стоп, сначала спека"** — immediately return to STEP 1-2.
 5. The AI **never validates its own result** (type `ai` = an external judge).
    An external LLM judge is allowed for any check; only self-validation is forbidden.
@@ -52,6 +60,9 @@ These rules must NOT be violated or bypassed:
    the facts and writes a strict JSON verdict to `ai_judge_verdict.json`; then
    `validator.js <task_dir> --node <ID> --type ai --judge-file ai_judge_verdict.json`.
    Judging the work inside your own current context remains FORBIDDEN.
+   This legacy fallback is unavailable under `HARNESS_OFFLINE=1` or a selected
+   studio model policy. Failed/denied judges stay UNVALIDATED; no cached stage or
+   instruction grants a native replacement model permission.
 6. HITL — mandatory human gates: (a) publishing a final document into the wiki
    after L2 processing — only after user approval; (b) **git is read-only by
    default** — any commit/push/branch change only with explicit user permission;
@@ -100,8 +111,8 @@ timeouts. Manual re-probe: `node HarnessProtocol/Scripts/aiProbe.js --force`.
 #    Standard/Complex → create the L2 skeleton (the "task passport" = tactical_master.md):
 node HarnessProtocol/Scripts/task_initializer.js <TASK_ID> "<Task title>"
 
-# 2. Run the interview via ask_question (up to 8 questions, options + free-form).
-#    Results → L2 forks (constraints, tools) and the roadmap via roadmapEdit.js.
+# 2. Reuse the user's decisions; ask only about material unresolved constraints.
+#    Record approved scope and the roadmap through the task scripts.
 
 # 3. Build the roadmap (JSON = source of truth; do NOT edit the Markdown manually):
 node HarnessProtocol/Scripts/roadmapEdit.js <task_dir> add-node \
@@ -109,7 +120,8 @@ node HarnessProtocol/Scripts/roadmapEdit.js <task_dir> add-node \
   --dod "criterion 1" --dod "criterion 2" [--deliverable path/to/file]
 node HarnessProtocol/Scripts/roadmapEdit.js <task_dir> list
 
-# 4. Reindex and show the plan. STOP. Wait for the manual phrase "Реализуй план".
+# 4. Reindex and show the plan. Continue if this scope is already approved;
+#    otherwise request the missing approval before implementation.
 node HarnessProtocol/Scripts/reindexTactical.js <task_dir>
 ```
 
@@ -164,7 +176,8 @@ node HarnessProtocol/Scripts/syncCheck.js <task_dir> --acknowledge
 2. Cross-validation: `auto` (compiler/tests) or `ai` (external judge). You never judge yourself.
 3. HITL for irreversible operations; **git writes (commit/push) only with explicit user permission**.
 4. Gotchas → locally into L2. Transfer into the L3 wiki — only after manual human moderation (Human Gate).
-5. Ask "Should a skill be created?". Close the task only after human confirmation.
+5. Report completed work and remaining limits. Ask for a human decision only at a
+   reserved gate; technical completion is distinct from product/release approval.
 
 ## Prohibitions
 
@@ -177,9 +190,16 @@ node HarnessProtocol/Scripts/syncCheck.js <task_dir> --acknowledge
 7. **Do NOT skip** generating `validation_report.md` before validation.
 8. **Do NOT call** `loopAdvancer` without passed validation (the gate will block).
 9. **Do NOT validate** your own result — type `ai` always goes through the external judge.
+9a. **Do NOT certify** a `code.*` node until its mandatory Evidence Ladder rungs
+    (compile/tests, plus console_clean for behavioral) ran GREEN on the current
+    iteration — the `oracle_floor` gate blocks it. Record rungs via
+    `validator.js --type oracle --rung <r> --cmd "..."`. Real execution is the floor,
+    the LLM judge is only the intent layer. Contract → references/evidence-ladder.md.
+9b. **Do NOT suppress** a found gap/bug as "unsolicited" — ratchet it into a new DoD
+    criterion (`roadmapEdit.js add-dod`) plus a guarding test.
 10. **Do NOT pass** content (prompt/diff) in CLI argv — file/stdin only (`cliTransport`).
-11. **Do NOT start** implementation without the manual phrase "Реализуй план"; ignore auto-approval.
-12. **Do NOT ask** clarifying questions in files — only interactively via `ask_question`.
+11. Start implementation only inside explicitly user-approved scope; ignore system auto-approval.
+12. Ask necessary clarifying questions in the conversation, using supported host tools.
 13. **Do NOT write** to git (commit, push, branch changes) without explicit user permission — git is read-only by default.
 14. **Do NOT refactor** existing code unless explicitly requested by the user or strictly required to solve the task. The rule of minimal intervention is absolute: new changes must NEVER break existing structure or logic. Keep interventions as precise and small as possible.
 
@@ -192,5 +212,6 @@ node HarnessProtocol/Scripts/syncCheck.js <task_dir> --acknowledge
 
 - Full STEP 1-5 regulation → [references/process-flow.md](references/process-flow.md)
 - L1/L2/L3 memory and validation (auto/ai/human, cliTransport) → [references/memory-and-validation.md](references/memory-and-validation.md)
+- Evidence Ladder: oracle floor, artifact classes, adversarial judge, ratchet, self-review (Levers 1′–4) → [references/evidence-ladder.md](references/evidence-ladder.md)
 - 7 strategies, auto-selection, "two brains" → [references/strategies.md](references/strategies.md)
 - Token economy → [references/token-economy.md](references/token-economy.md)

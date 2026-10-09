@@ -22,10 +22,11 @@ const TEST_SUITES = [
     { name: '6. Чек-лист функционала полномасштабного приложения Harness Nexus (27 функций + Web UI)', file: '../Apps/harness-nexus/test/checklist_verifier.js', optional: true },
     { name: '7. Репликация игры Zuma Deluxe (10 канонических инвариантов, 5 уровней, Web Audio)', file: '../Apps/zuma-game/test/zuma_canonical_test.js', optional: true },
     { name: '8. Детерминированная классификация и выбор стратегий', file: 'test_strategy_selection.js' },
-    { name: '9. CLI-транспорт, безопасность и устойчивость к длинным payload', file: 'test_cli_transport.js' },
+    { name: '9. CLI-транспорт, безопасность и устойчивость к длинным payload', file: 'test_cli_transport.js', nodeTest: true },
     { name: '10. Смоук-тесты жизненного цикла и отрицательных гейтов', file: 'test_harness_flow.js' },
     { name: '11. Динамическая декомпозиция узлов в рантайме и адаптивное ветвление графа (ADR 0021)', file: 'test_dynamic_decomposition.js' },
-    { name: '12. Лестница доказательств: пол оракула, классы артефактов, ratchet (Levers 1′–4)', file: 'test_evidence_ladder.js' }
+    { name: '12. Лестница доказательств: пол оракула, классы артефактов, ratchet (Levers 1′–4)', file: 'test_evidence_ladder.js' },
+    ...['test_unity_results.mjs', 'test_evidence_freshness.mjs', 'test_model_policy.js', 'test_unity_runtime.mjs', 'test_skill_distribution.mjs', 'test_validator_boundaries.mjs', 'test_webgl_smoke.mjs', 'test_skill_distiller.mjs'].map(file => ({ name: `Studio hardening: ${file}`, file, nodeTest: true }))
 ];
 
 async function main() {
@@ -49,7 +50,7 @@ async function main() {
             continue;
         }
         try {
-            const { stdout, stderr } = await execAsync(`node "${filePath}"`, {
+            const { stdout, stderr } = await execAsync(`node ${suite.nodeTest ? '--test ' : ''}"${filePath}"`, {
                 cwd: path.resolve(__dirname, '..'),
                 timeout: 180000
             });

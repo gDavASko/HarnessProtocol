@@ -20,6 +20,7 @@ const ROOT = path.resolve(SCRIPTS, '..');
 const EVAL_BASE = path.join(ROOT, '.harness_tmp', 'eval', 'tac');
 
 process.env.TACTICAL_DIR = EVAL_BASE;
+process.env.HARNESS_OFFLINE = '1';
 process.env.HARNESS_PROBE_SKIP = '1';
 process.env.HARNESS_REQUIRE_SUMMARY = '0';
 // Тест драйвит машину состояний/лестницу, а не живого исполнителя прозы —
@@ -47,11 +48,19 @@ async function run(script, args, envOverride = null) {
 async function readState(dir) { return JSON.parse((await fs.readFile(path.join(dir, '.harness_state.json'), 'utf-8')).replace(/^﻿/, '')); }
 async function readRoadmap(dir) { return JSON.parse((await fs.readFile(path.join(dir, '.harness_roadmap.json'), 'utf-8')).replace(/^﻿/, '')); }
 
+// Fixture evidence covers only its source, never unrelated concurrent repo edits.
+async function scopeFixtureSource(dir) {
+    const workspace = path.join(dir, 'workspace');
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.writeFile(path.join(dir, 'evidence-scope.json'), JSON.stringify({ schema_version: 1, source_roots: [workspace] }));
+}
+
 // Разворачивает задачу, доводит первый узел до стадии report_ready.
 async function setupNode(id, { kind = 'code', cls = null, validation = 'ai' } = {}) {
     const dir = path.join(EVAL_BASE, id);
     await fs.rm(dir, { recursive: true, force: true });
     await run('task_initializer.js', [id, `eval ${id}`]);
+    await scopeFixtureSource(dir);
     await run('contextAssembler.js', [dir, '--mode', 'init']);
     const N = 'УЗЕЛ-01';
     const fieldArgs = [dir, 'set-field', '--node', N, '--validation', validation, '--kind', kind];
@@ -102,6 +111,7 @@ async function scenario3_stale() {
     console.log('\n[3] Свежесть рецептов: смена итерации протухляет пол (unit)');
     const id = 'EV-STALE'; const dir = path.join(EVAL_BASE, id);
     await fs.rm(dir, { recursive: true, force: true }); await fs.mkdir(dir, { recursive: true });
+    await scopeFixtureSource(dir);
     const node = { id: 'УЗЕЛ-01', artifact_kind: 'code', iteration: 0 };
     await recordRung(dir, node, 'compile', 'PASS');
     await recordRung(dir, node, 'tests', 'PASS');
@@ -117,6 +127,7 @@ async function scenario4_waive() {
     console.log('\n[4] WAIVED-рунг засчитывается как met, но виден в аудите (unit)');
     const id = 'EV-WAIVE'; const dir = path.join(EVAL_BASE, id);
     await fs.rm(dir, { recursive: true, force: true }); await fs.mkdir(dir, { recursive: true });
+    await scopeFixtureSource(dir);
     const node = { id: 'УЗЕЛ-01', artifact_kind: 'code', artifact_class: 'code.behavioral', iteration: 0 };
     await recordRung(dir, node, 'compile', 'PASS');
     await recordRung(dir, node, 'tests', 'PASS');
@@ -188,6 +199,9 @@ async function complexA() {
     await writeWs(dir, 'workspace/calc.js', `export const add=(a,b)=>a+b;\nexport const div=(a,b)=>{if(b===0)throw new Error('div by zero');return a/b;};\n`);
     const fixed = await oracle(dir, N, 'tests', 'node workspace/test.mjs');
     check('после фикса оракул tests зелёный', fixed.data?.result === 'PASS', fixed.raw?.slice(0, 160));
+    const stale = await evaluateFloor(dir, (await readRoadmap(dir)).nodes[0]);
+    check('фикс исходника протухляет прежний compile', stale.missing.includes('compile'), JSON.stringify(stale));
+    await oracle(dir, N, 'compile', 'node --check workspace/calc.js');
     await armHuman(dir, N);
     const passed = await approve(dir, N);
     check('узел сертифицирован после реального зелёного прогона', passed.data?.result === 'PASS', passed.raw?.slice(0, 160));
@@ -201,6 +215,7 @@ async function complexB() {
     const id = 'APP-B'; const dir = path.join(EVAL_BASE, id);
     await fs.rm(dir, { recursive: true, force: true });
     await run('task_initializer.js', [id, 'ttl kv store']);
+    await scopeFixtureSource(dir);
     await run('contextAssembler.js', [dir, '--mode', 'init']);
     // Узел 1 (движок) — код; узел 2 (доки) — текст.
     await run('roadmapEdit.js', [dir, 'set-field', '--node', 'УЗЕЛ-01', '--validation', 'ai', '--kind', 'code']);
@@ -272,7 +287,7 @@ async function scenario11_wave2b() {
     // Unity NUnit-парсер (рунг tests для behavioral): реальный скрипт, честные коды выхода.
     const xdir = path.join(EVAL_BASE, 'EV-UNITY');
     await fs.mkdir(xdir, { recursive: true });
-    await fs.writeFile(path.join(xdir, 'pass.xml'), '<test-run result="Passed" total="3" passed="3" failed="0"></test-run>', 'utf-8');
+    await fs.writeFile(path.join(xdir, 'pass.xml'), '<test-run result="Passed" total="3" passed="3" failed="0"><test-case result="Passed"/><test-case result="Passed"/><test-case result="Passed"/></test-run>', 'utf-8');
     await fs.writeFile(path.join(xdir, 'fail.xml'), '<test-run result="Failed" total="3" passed="1" failed="2"></test-run>', 'utf-8');
     const rp = await run('parseUnityTestResults.mjs', [path.join(xdir, 'pass.xml')]);
     const rf = await run('parseUnityTestResults.mjs', [path.join(xdir, 'fail.xml')]);
@@ -343,6 +358,7 @@ async function scenario14_deliverables_selfreview() {
     const id = 'EV-DELIV'; const dir = path.join(EVAL_BASE, id); const N = 'УЗЕЛ-01';
     await fs.rm(dir, { recursive: true, force: true });
     await run('task_initializer.js', [id, 'deliv']);
+    await scopeFixtureSource(dir);
     await run('contextAssembler.js', [dir, '--mode', 'init']);
     await run('roadmapEdit.js', [dir, 'set-field', '--node', N, '--validation', 'ai', '--kind', 'code', '--deliverable', 'workspace/must_exist.mjs']);
     await writeRealOracle(dir);
@@ -351,10 +367,16 @@ async function scenario14_deliverables_selfreview() {
     await oracle(dir, N, 'tests', REAL.tests);
     await armHuman(dir, N);
     const noDeliv = await approve(dir, N);
+    const missingFloor = await evaluateFloor(dir, (await readRoadmap(dir)).nodes[0]);
     check('заявленный, но отсутствующий deliverable → пол не выполнен',
-        !noDeliv.success && noDeliv.data?.missing_deliverables?.includes('workspace/must_exist.mjs'), noDeliv.raw?.slice(0, 160));
-    // Создаём deliverable → пол закрывается.
+        !noDeliv.success && missingFloor.missing_deliverables.includes('workspace/must_exist.mjs') && (await readState(dir)).stage !== 'validated', noDeliv.raw?.slice(0, 160));
+    // Новый артефакт меняет исходники: прежние рецепты нельзя переиспользовать.
     await writeWs(dir, 'workspace/must_exist.mjs', 'export const x=1;\n');
+    const staleFloor = await evaluateFloor(dir, (await readRoadmap(dir)).nodes[0]);
+    check('создание deliverable протухляет compile и tests',
+        staleFloor.missing.includes('compile') && staleFloor.missing.includes('tests'), JSON.stringify(staleFloor));
+    await oracle(dir, N, 'compile', REAL.compile);
+    await oracle(dir, N, 'tests', REAL.tests);
     await armHuman(dir, N);
     const withDeliv = await approve(dir, N);
     check('после создания deliverable → PASS', withDeliv.data?.result === 'PASS', withDeliv.raw?.slice(0, 160));
@@ -398,6 +420,7 @@ async function scenario15_security() {
     const id = 'EV-SEC'; const dir = path.join(EVAL_BASE, id); const N = 'УЗЕЛ-01';
     await fs.rm(dir, { recursive: true, force: true });
     await run('task_initializer.js', [id, 'sec']);
+    await scopeFixtureSource(dir);
     await run('contextAssembler.js', [dir, '--mode', 'init']);
     await run('roadmapEdit.js', [dir, 'set-field', '--node', N, '--validation', 'human', '--kind', 'text', '--deliverable', 'workspace/config.txt']);
     await writeWs(dir, 'workspace/config.txt', 'db_password = "S3cr3tP@ssw0rd!!"\nAKIAIOSFODNN7EXAMPLE\n');
@@ -418,26 +441,25 @@ async function scenario16_rubric() {
     check('низкий взвешенный балл → not ok', evaluateRubric({ functionality: 5, quality: 5, security: 6, edge_cases: 5 }).ok === false);
     check('низкий security → security-floor авто-FAIL', evaluateRubric({ functionality: 10, quality: 10, security: 3, edge_cases: 10 }).ok === false);
 
-    // E2E через subagent-судью: pass=true, но security-измерение низкое → FAIL.
+    // Offline is a dispatch denial, not authorization for a replacement judge.
+    // Rubric scoring above is deterministic; this CLI path proves denial cannot
+    // establish the awaiting-subagent gate or admit a locally supplied verdict.
     const { dir, N } = await setupNode('EV-RUBRIC', { kind: 'code', validation: 'ai' });
-    await run('roadmapEdit.js', [dir, 'set-field', '--node', N, '--worker-family', 'openai']); // cross-family субагент валиден
+    await run('roadmapEdit.js', [dir, 'set-field', '--node', N, '--worker-family', 'openai']);
     await writeRealOracle(dir);
     await oracle(dir, N, 'compile', REAL.compile);
     await oracle(dir, N, 'tests', REAL.tests);
     const trig = await run('validator.js', [dir, '--node', N, '--type', 'ai']);
-    check('offline → NEEDS_SUBAGENT_JUDGE', trig.data?.action === 'NEEDS_SUBAGENT_JUDGE', trig.raw?.slice(0, 140));
-    if (trig.data?.action === 'NEEDS_SUBAGENT_JUDGE') {
-        await fs.writeFile(path.join(dir, 'ai_judge_verdict.json'),
-            JSON.stringify({ pass: true, dod_results: [{ index: 0, pass: true }], rubric: { functionality: 9, quality: 8, security: 2, edge_cases: 8 } }), 'utf8');
-        const bad = await run('validator.js', [dir, '--node', N, '--type', 'ai', '--judge-file', 'ai_judge_verdict.json']);
-        check('pass=true, но security=2 → рубрика понижает до FAIL', bad.data?.result === 'FAIL', bad.raw?.slice(0, 180));
-        // Повторный заход + хорошая рубрика → PASS.
-        await run('validator.js', [dir, '--node', N, '--type', 'ai']); // снова awaiting_subagent
-        await fs.writeFile(path.join(dir, 'ai_judge_verdict.json'),
-            JSON.stringify({ pass: true, dod_results: [{ index: 0, pass: true }], rubric: { functionality: 9, quality: 8, security: 9, edge_cases: 8 } }), 'utf8');
-        const good = await run('validator.js', [dir, '--node', N, '--type', 'ai', '--judge-file', 'ai_judge_verdict.json']);
-        check('хорошая рубрика → PASS', good.data?.result === 'PASS', good.raw?.slice(0, 180));
-    }
+    check('offline запрещает вызов судьи без неявного fallback',
+        !trig.success && /HARNESS_OFFLINE/.test(trig.data?.error || '') && trig.data?.action !== 'NEEDS_SUBAGENT_JUDGE', trig.raw?.slice(0, 180));
+    const deniedState = await readState(dir);
+    check('offline оставляет узел несертифицированным',
+        deniedState.stage !== 'validated' && deniedState.stage !== 'awaiting_subagent_validation' && deniedState.validation_result !== 'PASS', JSON.stringify(deniedState));
+    await fs.writeFile(path.join(dir, 'ai_judge_verdict.json'),
+        JSON.stringify({ pass: true, dod_results: [{ index: 0, pass: true }], rubric: { functionality: 9, quality: 8, security: 9, edge_cases: 8 } }), 'utf8');
+    const forgedFallback = await run('validator.js', [dir, '--node', N, '--type', 'ai', '--judge-file', 'ai_judge_verdict.json']);
+    check('offline не разрешает вердикт в обход fallback-гейта',
+        !forgedFallback.success && forgedFallback.data?.gate === 'native_judge_not_authorized', forgedFallback.raw?.slice(0, 180));
 }
 
 // ── harness_dream: самоулучшение процесса из провалов.
@@ -479,6 +501,38 @@ async function scenario18_toolbudget() {
     check('CLI линтер: реальные 7 стратегий в бюджете (≤10)', cli.success && cli.data?.ok === true, cli.raw?.slice(0, 140));
 }
 
+// ── Headless render/loop oracle (закрывает waiver console_clean для canvas).
+async function scenario19_headless() {
+    console.log('\n[19] Headless-оракул цикла: console_clean для behavioral больше не слепой');
+    const dir = path.join(EVAL_BASE, 'EV-HL');
+    await fs.mkdir(dir, { recursive: true });
+    const good = path.join(dir, 'good.html');
+    const broken = path.join(dir, 'broken.html');
+    const noloop = path.join(dir, 'noloop.html');
+    await fs.writeFile(good, '<canvas id="c"></canvas><script>let t=0;function loop(){t++;const x=t*2;requestAnimationFrame(loop);}requestAnimationFrame(loop);</script>', 'utf8');
+    await fs.writeFile(broken, '<canvas id="c"></canvas><script>let t=0;function loop(){t++;if(t>30){const z=null;z.boom();}requestAnimationFrame(loop);}requestAnimationFrame(loop);</script>', 'utf8');
+    await fs.writeFile(noloop, '<canvas id="c"></canvas><script>const a=1;</script>', 'utf8');
+
+    const rg = await run('headlessLoop.mjs', [good, '--frames', '300']);
+    check('рабочий цикл → ok:true (exit 0)', rg.success && rg.data?.ok === true, rg.raw?.slice(0, 140));
+    const rb = await run('headlessLoop.mjs', [broken, '--frames', '300']);
+    check('краш в кадре → ok:false (exit 1)', !rb.success && rb.data?.ok === false && rb.data?.stage === 'frame', rb.raw?.slice(0, 160));
+    const rn = await run('headlessLoop.mjs', [noloop]);
+    check('нет requestAnimationFrame → ok:false (цикл не стартовал)', !rn.success && rn.data?.stage === 'no-loop', rn.raw?.slice(0, 140));
+
+    // Подключение как рунг console_clean behavioral-узла (через реальный validator oracle).
+    const { dir: nd, N } = await setupNode('EV-HL-NODE', { kind: 'code', cls: 'code.behavioral', validation: 'ai' });
+    const rel = path.relative(nd, good).replace(/\\/g, '/');
+    const cc = await run('validator.js', [nd, '--node', N, '--type', 'oracle', '--rung', 'console_clean', '--cmd', `node ${SCRIPTS.replace(/\\/g, '/')}/headlessLoop.mjs ${good} --frames 200`]);
+    check('console_clean через headlessLoop → рунг записан PASS', cc.success && cc.data?.result === 'PASS', cc.raw?.slice(0, 160));
+
+    // oracleSuggest теперь предлагает headlessLoop для console_clean.
+    const { suggestOracles, detectProjectType } = await import('./oracleSuggest.js');
+    const s = suggestOracles({ id: N, artifact_kind: 'code', artifact_class: 'code.behavioral' }, detectProjectType(ROOT));
+    const ccRung = s.rungs.find(r => r.rung === 'console_clean');
+    check('oracleSuggest: console_clean → headlessLoop', /headlessLoop/.test(ccRung?.suggested_cmd || ''), ccRung?.suggested_cmd);
+}
+
 async function main() {
     console.log('═══ EVIDENCE LADDER EVAL (Levers 1′–4) ═══');
     await fs.rm(EVAL_BASE, { recursive: true, force: true }).catch(() => {});
@@ -502,6 +556,7 @@ async function main() {
         await scenario16_rubric();
         await scenario17_dream();
         await scenario18_toolbudget();
+        await scenario19_headless();
     } catch (e) {
         bad('НЕОЖИДАННОЕ ИСКЛЮЧЕНИЕ', e.stack || e.message);
     }

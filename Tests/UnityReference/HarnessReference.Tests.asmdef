@@ -1,0 +1,5 @@
+{
+  "name": "HarnessReference.Tests",
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

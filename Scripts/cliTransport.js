@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { resolveTmp, findRepoRoot } from './harnessPaths.js';
 import { resolveModelForBin, getLimits } from './harnessConfig.js';
+import { authorizeModelCall, assertOnline, hasStudioPolicy, loadModelPolicy, ModelPolicyError } from './modelPolicy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -179,61 +180,80 @@ function quoteArg(arg) {
 
 // ─── Низкоуровневый запуск ───────────────────────────────────────────────────
 
-function spawnCli(bin, argv, { cwd, input, timeoutMs }) {
-    return new Promise(async (resolve) => {
-        try {
-            await validateSecurityPolicy(bin, argv);
-        } catch (err) {
-            resolve({
-                code: -1,
-                stdout: '',
-                stderr: `[AgentShield] ${err.message}`,
-                spawnError: true
-            });
-            return;
-        }
+async function spawnCli(bin, argv, { cwd, input, timeoutMs, outFile, request, policyOptions }) {
+    await validateSecurityPolicy(bin, argv);
+    // Last boundary before ANY real subprocess or fake transport. All public
+    // callers, including probes, workers and judge fallback, pass through here.
+    const permit = await authorizeModelCall(request, { ...policyOptions, timeoutMs });
+    const fake = assertOnline(policyOptions, 'cli');
+    const maxBytes = permit.maxOutputTokens; // conservative CLI byte ceiling
+    return new Promise((resolve) => {
         const commandString = [bin, ...argv.map(quoteArg)].join(' ');
-        const child = spawn(commandString, {
+        const child = fake ? fake({ bin, argv, cwd, input, outFile, timeoutMs: permit.timeoutMs, maxBytes }) : spawn(commandString, {
             shell: true,
             cwd: cwd || process.cwd(),
             windowsHide: true,
+            detached: process.platform !== 'win32',
             env: { ...process.env, NO_COLOR: '1', CI: '1', TERM: 'dumb' }
         });
 
         let stdout = '';
         let stderr = '';
         let finished = false;
+        let outputBytes = 0;
+
+        const kill = () => {
+            try {
+                if (process.platform === 'win32') {
+                    const killer = spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { windowsHide: true });
+                    killer.on('error', () => { try { child.kill(); } catch {} });
+                }
+                else {
+                    try { process.kill(-child.pid, 'SIGKILL'); }
+                    catch { child.kill('SIGKILL'); }
+                }
+            } catch { /* process may already have exited */ }
+        };
+        const finish = result => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            clearInterval(fileGuard);
+            resolve(result);
+        };
+        const fileGuard = maxBytes && outFile ? setInterval(() => {
+            try {
+                if (fssync.statSync(outFile).size + outputBytes > maxBytes) {
+                    kill(); finish({ code: -1, stdout: '', stderr: 'output allowance exceeded', outputExceeded: true });
+                }
+            } catch { /* no output file yet */ }
+        }, 50) : null;
 
         const timer = setTimeout(() => {
             if (finished) return;
-            finished = true;
-            try {
-                if (process.platform === 'win32') {
-                    spawn('taskkill', ['/F', '/T', '/PID', child.pid]);
-                } else {
-                    child.kill('SIGKILL');
-                }
-            } catch { /* ignore */ }
+            kill();
             try { child.stdout?.destroy(); } catch {}
             try { child.stderr?.destroy(); } catch {}
-            resolve({ code: -1, stdout, stderr, timedOut: true });
-        }, timeoutMs || DEFAULT_TIMEOUT_MS);
+            finish({ code: -1, stdout, stderr, timedOut: true, timeoutMs: permit.timeoutMs });
+        }, permit.timeoutMs);
 
-        child.stdout?.on('data', (d) => { stdout += d.toString('utf-8'); });
-        child.stderr?.on('data', (d) => { stderr += d.toString('utf-8'); });
+        const append = (d, isError) => {
+            if (finished) return;
+            outputBytes += d.length;
+            if (maxBytes && outputBytes > maxBytes) {
+                kill(); finish({ code: -1, stdout: '', stderr: 'output allowance exceeded', outputExceeded: true }); return;
+            }
+            if (isError) stderr += d.toString('utf8'); else stdout += d.toString('utf8');
+        };
+        child.stdout?.on('data', d => append(d, false));
+        child.stderr?.on('data', d => append(d, true));
 
         child.on('error', (err) => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            resolve({ code: -1, stdout, stderr: stderr + `\n${err.message}`, spawnError: true });
+            finish({ code: -1, stdout, stderr: stderr + `\n${err.message}`, spawnError: true });
         });
 
         child.on('close', (code) => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            resolve({ code, stdout, stderr, timedOut: false });
+            finish({ code, stdout, stderr, timedOut: false, maxBytes: maxBytes == null ? null : maxBytes - outputBytes });
         });
 
         if (child.stdin) {
@@ -243,13 +263,13 @@ function spawnCli(bin, argv, { cwd, input, timeoutMs }) {
             // оно роняло ВЕСЬ прогон харнеса вместо graceful-fallback на другого
             // судью. Гасим его в спокойный результат.
             child.stdin.on('error', (err) => {
-                resolve({ code: -1, stdout, stderr: stderr + `\n[stdin] ${err.message}`, spawnError: true });
+                kill(); finish({ code: -1, stdout, stderr: stderr + `\n[stdin] ${err.message}`, spawnError: true });
             });
             try {
                 if (input != null) child.stdin.write(input, 'utf-8');
                 child.stdin.end();
             } catch (err) {
-                resolve({ code: -1, stdout, stderr: stderr + `\n[stdin-write] ${err.message}`, spawnError: true });
+                kill(); finish({ code: -1, stdout, stderr: stderr + `\n[stdin-write] ${err.message}`, spawnError: true });
             }
         }
     });
@@ -264,12 +284,13 @@ function stripNoise(text) {
         .trim();
 }
 
-async function readOutFile(outFile, expectSentinel, closed) {
+async function readOutFile(outFile, expectSentinel, closed, maxBytes = null) {
     // После закрытия процесса файл уже должен быть на месте; на всякий случай
     // делаем несколько коротких поллов (агентные CLI пишут файл до завершения).
     const attempts = closed ? 3 : 10;
     for (let i = 0; i < attempts; i++) {
         try {
+            if (maxBytes != null && (await fs.stat(outFile)).size > maxBytes) throw new ModelPolicyError('output allowance exceeded');
             const raw = await fs.readFile(outFile, 'utf-8');
             const clean = raw.replace(/^﻿/, '');
             if (clean.trim().length > 0) {
@@ -277,7 +298,7 @@ async function readOutFile(outFile, expectSentinel, closed) {
                     return clean.replace(SENTINEL, '').trim();
                 }
             }
-        } catch { /* not ready */ }
+        } catch (err) { if (err instanceof ModelPolicyError) throw err; /* not ready */ }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
     return null;
@@ -302,7 +323,18 @@ async function cleanup(files) {
  * @param {number} [opts.timeoutMs]
  * @returns {Promise<{ok:boolean, text?:string, bin:string, error?:string}>}
  */
-export async function runCliModel({ bin, workDir, systemText = '', userText = '', model = null, timeoutMs = DEFAULT_TIMEOUT_MS, sessionId = null, resume = false }) {
+export async function runCliModel({ bin, workDir, systemText = '', userText = '', model = null, timeoutMs = DEFAULT_TIMEOUT_MS, sessionId = null, resume = false, role = 'worker', effort = 'default', ...policyOptions }) {
+    try {
+        loadModelPolicy(policyOptions);
+        assertOnline(policyOptions, 'cli');
+        if (hasStudioPolicy(policyOptions)) {
+            if (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._:/ -]*$/.test(model)) throw new ModelPolicyError('explicit safe model ID required');
+            if (resume || sessionId) throw new ModelPolicyError('studio calls require a fresh session to prevent inherited model/effort changes');
+            if (bin === 'gemini') throw new ModelPolicyError('studio Gemini CLI file-writing transport is unsupported; use gemini-http or agy');
+            if (effort !== 'default' && !['codex', 'claude'].includes(bin)) throw new ModelPolicyError('transport cannot set explicit reasoning effort');
+        }
+        if (effort !== 'default' && !['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(effort)) throw new ModelPolicyError('invalid reasoning effort');
+    } catch (err) { return { ok: false, bin, error: err.message, errorCode: err.code }; }
     const transport = TRANSPORTS[bin];
     if (!transport) {
         return { ok: false, bin, error: `Неизвестный CLI-бинарник: ${bin}` };
@@ -341,27 +373,33 @@ export async function runCliModel({ bin, workDir, systemText = '', userText = ''
         }
 
         const built = transport.build({ model, outFile, workDir, instruction, sessionId, resume });
+        if (effort !== 'default') {
+            if (bin === 'codex') built.argv.unshift('-c', `model_reasoning_effort="${effort}"`);
+            else if (bin === 'claude') built.argv.push('--effort', effort);
+        }
         const runInput = built.promptVia === 'stdin' ? input : null;
 
         const res = await spawnCli(bin, built.argv, {
             cwd: built.cwd || workDir,
             input: runInput,
-            timeoutMs
+            timeoutMs, outFile, request: { provider: bin, model, role, effort }, policyOptions
         });
 
+        if (res.outputExceeded) return { ok: false, bin, error: 'output allowance exceeded', errorCode: 'MODEL_POLICY_DENIED' };
         if (res.spawnError) {
             return { ok: false, bin, error: `Не удалось запустить ${bin}: ${stripNoise(res.stderr)}` };
         }
         if (res.timedOut) {
-            return { ok: false, bin, error: `Таймаут ${bin} (${timeoutMs} мс)` };
+            return { ok: false, bin, error: `Таймаут ${bin} (${res.timeoutMs ?? timeoutMs} мс)` };
         }
+        if (res.code !== 0) return { ok: false, bin, error: `CLI exited ${res.code}: ${stripNoise(res.stderr).slice(0, 200)}` };
 
         let text = null;
         if (transport.mode === 'stdout') {
             text = stripNoise(res.stdout);
         } else {
             const expectSentinel = transport.mode === 'file_out_instruct';
-            text = await readOutFile(outFile, expectSentinel, true);
+            text = await readOutFile(outFile, expectSentinel, true, res.maxBytes);
         }
 
         if (!text || text.length === 0) {
@@ -374,7 +412,7 @@ export async function runCliModel({ bin, workDir, systemText = '', userText = ''
 
         return { ok: true, bin, text };
     } catch (err) {
-        return { ok: false, bin, error: err.message };
+        return { ok: false, bin, error: err.message, errorCode: err.code };
     } finally {
         await cleanup(filesToClean);
     }
@@ -392,7 +430,7 @@ export async function runCliModel({ bin, workDir, systemText = '', userText = ''
  * @param {number} [opts.timeoutMs]
  * @returns {Promise<{ok:boolean, text?:string, bin?:string, error?:string, attempts:Array}>}
  */
-export async function callExternalJudge({ workDir, systemText, userText, chain = EMERGENCY_JUDGE_CHAIN, model = null, timeoutMs = null, role = 'judge' }) {
+export async function callExternalJudge({ workDir, systemText, userText, chain = EMERGENCY_JUDGE_CHAIN, model = null, timeoutMs = null, role = 'judge', effort = 'default', ...policyOptions }) {
     // Phase-2 wiring: if the caller did not pass an explicit timeout, use the per-role
     // limit from harness.config.json (falls back to DEFAULT_TIMEOUT_MS when config is
     // missing/broken so the pre-phase-2 behavior is preserved).
@@ -407,15 +445,16 @@ export async function callExternalJudge({ workDir, systemText, userText, chain =
     // so parallel fan-out would just duplicate the prompt tokens across every judge.
     const attempts = [];
     for (const bin of chain) {
-        const useModel = (bin === 'agy' || bin === 'gemini') ? model : null;
+        const useModel = model;
         let res;
         try {
-            res = await runCliModel({ bin, workDir, systemText, userText, model: useModel, timeoutMs });
+            res = await runCliModel({ bin, workDir, systemText, userText, model: useModel, timeoutMs, role, effort, ...policyOptions });
         } catch (err) {
             attempts.push({ bin, ok: false, error: err.message });
             continue;
         }
         attempts.push({ bin, ok: res.ok, error: res.error || null });
+        if (res.errorCode === 'MODEL_POLICY_DENIED' || res.errorCode === 'HARNESS_OFFLINE') return { ...res, attempts };
         if (res.ok) {
             return { ok: true, text: res.text, bin, attempts };
         }
@@ -438,16 +477,16 @@ export async function callExternalJudge({ workDir, systemText, userText, chain =
  * @param {string} [opts.role='judge']
  * @returns {Promise<{ok:boolean, text?:string, bin:string, error?:string}>}
  */
-export async function callSingleJudge({ workDir, systemText, userText, bin, model = null, timeoutMs = null, role = 'judge' }) {
+export async function callSingleJudge({ workDir, systemText, userText, bin, model = null, timeoutMs = null, role = 'judge', effort = 'default', ...policyOptions }) {
     if (timeoutMs == null) {
         try {
             const lim = getLimits(role);
             timeoutMs = (lim && Number.isFinite(lim.timeout_ms) && lim.timeout_ms > 0) ? lim.timeout_ms : DEFAULT_TIMEOUT_MS;
         } catch { timeoutMs = DEFAULT_TIMEOUT_MS; }
     }
-    const useModel = (bin === 'agy' || bin === 'gemini') ? model : null;
+    const useModel = model;
     try {
-        return await runCliModel({ bin, workDir, systemText, userText, model: useModel, timeoutMs });
+        return await runCliModel({ bin, workDir, systemText, userText, model: useModel, timeoutMs, role, effort, ...policyOptions });
     } catch (err) {
         return { ok: false, bin, error: err.message };
     }
@@ -528,7 +567,7 @@ async function saveSessionRegistry(taskDir, reg) {
  * с МИНИМАЛЬНОЙ преамбулой (тяжёлые правила и так лежат на диске в AGENTS.md).
  * @returns {Promise<{ok:boolean, text?:string, bin:string, error?:string, resumed:boolean, sessionId:string|null, delta:boolean}>}
  */
-export async function runWorkerTurn({ taskDir, bin, runId = 'default', systemText = '', userText = '', model = null, tier = 'standard', budgetTokens = null, dryRun = false, timeoutMs = null, role = 'worker' }) {
+export async function runWorkerTurn({ taskDir, bin, runId = process.env.HARNESS_RUN_ID, systemText = '', userText = '', model = null, tier = 'standard', budgetTokens = null, dryRun = false, timeoutMs = null, role = 'worker', effort = 'default', ...policyOptions }) {
     // Phase-2 wiring: pull per-role limits from harness.config.json when the caller
     // didn't override them explicitly. Config missing/broken → fall back to old
     // hard-coded defaults so nothing regresses.
@@ -543,8 +582,9 @@ export async function runWorkerTurn({ taskDir, bin, runId = 'default', systemTex
     }
     const reg = await loadSessionRegistry(taskDir);
     reg.runs = reg.runs || {};
-    const run = reg.runs[runId] = reg.runs[runId] || { sessions: {} };
-    const canResume = bin === 'claude';
+    const registryRunId = runId || 'default';
+    const run = reg.runs[registryRunId] = reg.runs[registryRunId] || { sessions: {} };
+    const canResume = bin === 'claude' && !hasStudioPolicy(policyOptions);
 
     let sessionId = run.sessions[bin] || null;
     let resume = false;
@@ -557,7 +597,7 @@ export async function runWorkerTurn({ taskDir, bin, runId = 'default', systemTex
         } else {
             resume = true; sys = ''; delta = true; // later turn: resume + delta only
         }
-    } else if (sessionId) {
+    } else if (sessionId && !hasStudioPolicy(policyOptions)) {
         sys = ''; delta = true;                // non-resumable: cold + minimal preamble
     }
 
@@ -579,7 +619,7 @@ export async function runWorkerTurn({ taskDir, bin, runId = 'default', systemTex
 
     const res = await runCliModel({
         bin, workDir: taskDir, systemText: sys, userText, model: resolvedModel, timeoutMs,
-        sessionId: canResume ? sessionId : null, resume
+        sessionId: canResume ? sessionId : null, resume, role, effort, ...policyOptions, runId
     });
 
     if (res.ok) {

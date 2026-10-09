@@ -7,6 +7,7 @@ import { runCliModel, isBinLikelyAvailable } from './cliTransport.js';
 import { findRepoRoot } from './harnessPaths.js';
 import { readClean } from './harnessState.js';
 import { getJudgePool, familyOfBin as configFamilyOfBin } from './harnessConfig.js';
+import { assertOnline, hasStudioPolicy, loadModelPolicy, policyModelFor, policyAllows, testTransport, ModelPolicyError } from './modelPolicy.js';
 
 // ─── Preflight-опрос доступности CLI-ИИ (судей) ──────────────────────────────
 //
@@ -101,13 +102,16 @@ export function familyOf(bin) {
  * @param {string[]} [opts.poolIds]  only include judges present in this pool
  * @returns {Array<{id:string,family:string,cost:string,latency:number}>}
  */
-export function liveJudgesFromProbe(probe, { poolIds = null, includeSubagent = true } = {}) {
+export function liveJudgesFromProbe(probe, { poolIds = null, includeSubagent = true, effort = 'default', maxAgeMs = DEFAULT_TTL_MS, ...policyOptions } = {}) {
+    const policy = loadModelPolicy(policyOptions);
+    if (probe && !validProbeTimestamp(probe.checked_at, maxAgeMs)) probe = null;
+    if (policy && probe?.policy_fingerprint !== policy.fingerprint) return [];
     const pool = poolIds || getJudgePool().map(j => j.id);
     const allowed = new Set(pool);
     const out = [];
     if (probe && probe.results) {
         for (const [bin, r] of Object.entries(probe.results)) {
-            if (!r || !r.ok) continue;
+            if (!compatibleJudgeRecord(r, bin, policy, effort)) continue;
             if (!allowed.has(bin)) continue;
             out.push({
                 id: bin,
@@ -120,7 +124,7 @@ export function liveJudgesFromProbe(probe, { poolIds = null, includeSubagent = t
     // The IDE subagent is not a probed CLI — it is a "context-fresh" Claude Code
     // subagent spawned by the orchestrator. Treat it as always LIVE when it is in
     // the judge pool, so cross-family scenarios can pick it as a valid judge.
-    if (includeSubagent && allowed.has('claude-subagent')
+    if (!policy && includeSubagent && allowed.has('claude-subagent')
         && !out.some(j => j.id === 'claude-subagent')) {
         out.push({
             id: 'claude-subagent',
@@ -132,11 +136,50 @@ export function liveJudgesFromProbe(probe, { poolIds = null, includeSubagent = t
     return out;
 }
 
-function probeFilePath() {
+function probeFilePath(options = {}) {
+    if (options.testHarness !== undefined) {
+        testTransport(options, 'cli');
+        const directory = options.workDir || options.runDir;
+        if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new ModelPolicyError('test cache needs an explicit absolute directory');
+        return path.join(directory, '.harness', 'ai_probe.json');
+    }
     return path.join(findRepoRoot(), '.harness', 'ai_probe.json');
 }
 
-async function loadJudgeConfig() {
+function validProbeTimestamp(value, maxAgeMs = null) {
+    if (typeof value !== 'string') return false;
+    const checked = Date.parse(value);
+    const now = Date.now();
+    if (!Number.isFinite(checked) || checked > now) return false;
+    return maxAgeMs === null || (Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && now - checked <= maxAgeMs);
+}
+
+function compatibleJudgeRecord(record, bin, policy, effort) {
+    return record?.ok === true && (!policy || (record.effort === effort &&
+        policyAllows(policy, { provider: bin, model: record.model, role: 'judge', effort })));
+}
+
+function validateProbeCache(parsed, policy, effort, maxAgeMs) {
+    if (!parsed || !validProbeTimestamp(parsed.checked_at, maxAgeMs) ||
+        !parsed.results || typeof parsed.results !== 'object' || Array.isArray(parsed.results)) return null;
+    if (policy && parsed.policy_fingerprint !== policy.fingerprint) return null;
+    const results = {};
+    for (const [bin, record] of Object.entries(parsed.results)) {
+        if (!record || typeof record !== 'object' || typeof record.ok !== 'boolean') continue;
+        results[bin] = record.ok && !compatibleJudgeRecord(record, bin, policy, effort)
+            ? { ...record, ok: false, status: 'policy_incompatible', error: 'Cached model/effort is not approved for this judge request' }
+            : record;
+    }
+    return { ...parsed, results };
+}
+
+async function loadJudgeConfig(options = {}) {
+    const policy = loadModelPolicy(options);
+    if (policy) {
+        const chain = [...new Set(policy.allowed.filter(entry => entry.role === 'judge' && entry.effort === (options.effort ?? 'default') && KNOWN_BINS.includes(entry.provider)).map(entry => entry.provider))];
+        if (!chain.length) throw new ModelPolicyError('studio judge pool is empty');
+        return { chain, model: policyModelFor(chain[0], 'judge', options.effort ?? 'default', options) };
+    }
     try {
         const raw = await readClean(path.resolve(__dirname, 'llm-config.json'));
         const config = JSON.parse(raw);
@@ -147,8 +190,10 @@ async function loadJudgeConfig() {
     return { chain: ['agy', 'claude', 'codex'], model: null };
 }
 
-async function probeOne(bin, { workDir, timeoutMs }) {
-    if (!isBinLikelyAvailable(bin)) {
+async function probeOne(bin, { workDir, timeoutMs, effort = 'default', ...policyOptions }) {
+    const model = hasStudioPolicy(policyOptions) ? policyModelFor(bin, 'probe', effort, policyOptions) : null;
+    assertOnline(policyOptions, 'cli');
+    if (!policyOptions.testHarness && !isBinLikelyAvailable(bin)) {
         return { bin, ok: false, status: 'not_installed', latency_ms: null, error: 'Бинарник не найден в PATH', permanent: false };
     }
 
@@ -159,10 +204,11 @@ async function probeOne(bin, { workDir, timeoutMs }) {
         // чтобы минимизировать контекст и исключить сканирование репозитория.
         const res = await runCliModel({
             bin,
-            workDir: os.tmpdir(),
+            workDir: policyOptions.testHarness ? workDir : os.tmpdir(),
             systemText: '',
             userText: probePrompt(nonce),
-            timeoutMs: timeoutMs || DEFAULT_PROBE_TIMEOUT_MS
+            timeoutMs: timeoutMs || DEFAULT_PROBE_TIMEOUT_MS,
+            ...policyOptions, model, role: 'probe', effort
         });
         const latency = Date.now() - start;
         const text = res.text || '';
@@ -170,7 +216,7 @@ async function probeOne(bin, { workDir, timeoutMs }) {
         // no auth-failure signature. res.ok is necessary but NOT sufficient — a CLI
         // can exit 0 while printing "Not logged in".
         if (res.ok && text.includes(nonce) && !looksLikeAuthFailure(text)) {
-            return { bin, ok: true, status: 'online', latency_ms: latency, error: null, permanent: false };
+            return { bin, model, effort, ok: true, status: 'online', latency_ms: latency, error: null, permanent: false };
         }
         const authFail = looksLikeAuthFailure(text) || looksLikeAuthFailure(res.error);
         const detail = res.error || (text ? `неожиданный ответ (нонс не подтверждён): ${text.slice(0, 80)}` : 'пустой ответ');
@@ -194,15 +240,19 @@ async function probeOne(bin, { workDir, timeoutMs }) {
  * @param {string} [opts.workDir] - рабочий каталог для CLI (по умолчанию корень репо)
  * @returns {Promise<{checked_at:string, timeout_ms:number, results:Object}>}
  */
-export async function runProbe({ bins = null, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, workDir = null } = {}) {
-    const { chain } = await loadJudgeConfig();
-    const targets = [...new Set([...(bins || []), ...chain, ...KNOWN_BINS])];
-    const cwd = workDir || findRepoRoot();
+export async function runProbe({ bins = null, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, workDir = null, effort = 'default', ...policyOptions } = {}) {
+    const policy = loadModelPolicy(policyOptions);
+    assertOnline(policyOptions, 'cli');
+    const { chain } = await loadJudgeConfig({ ...policyOptions, effort });
+    // Studio probing never expands to unrelated installed models. Each probe is
+    // separately authorized for role=probe and charged to the same run ledger.
+    const targets = policy ? [...new Set(bins || chain)] : [...new Set([...(bins || []), ...chain, ...KNOWN_BINS])];
+    const cwd = workDir || policyOptions.runDir || findRepoRoot();
 
     // Prior cache (TTL ignored): reused for adaptive timeouts and the permanent-
     // failure quarantine so quarantined binaries survive cache expiry.
-    const prior = await loadProbeRaw();
-    const priorResults = prior?.results || {};
+    const prior = await loadProbeRaw({ ...policyOptions, workDir: cwd, effort });
+    const priorResults = policy && prior?.policy_fingerprint !== policy.fingerprint ? {} : prior?.results || {};
     const now = Date.now();
 
     const probed = await Promise.all(targets.map(async (bin) => {
@@ -220,7 +270,7 @@ export async function runProbe({ bins = null, timeoutMs = DEFAULT_PROBE_TIMEOUT_
         const adaptiveTimeout = (priorBin?.ok && priorBin.latency_ms)
             ? Math.max(timeoutMs, 2 * priorBin.latency_ms)
             : timeoutMs;
-        const r = await probeOne(bin, { workDir: cwd, timeoutMs: adaptiveTimeout });
+        const r = await probeOne(bin, { workDir: cwd, timeoutMs: adaptiveTimeout, effort, ...policyOptions });
         if (!r.ok && r.permanent) {
             r.disabled_until = new Date(now + DISABLED_TTL_MS).toISOString();
         }
@@ -231,6 +281,7 @@ export async function runProbe({ bins = null, timeoutMs = DEFAULT_PROBE_TIMEOUT_
     for (const item of probed) {
         results[item.bin] = {
             ok: item.ok, status: item.status, latency_ms: item.latency_ms, error: item.error,
+            ...(item.model ? { model: item.model, effort: item.effort } : {}),
             ...(item.disabled_until ? { disabled_until: item.disabled_until } : {})
         };
     }
@@ -238,10 +289,11 @@ export async function runProbe({ bins = null, timeoutMs = DEFAULT_PROBE_TIMEOUT_
     const payload = {
         checked_at: new Date().toISOString(),
         timeout_ms: timeoutMs,
+        ...(policy ? { policy_fingerprint: policy.fingerprint } : {}),
         results
     };
 
-    const file = probeFilePath();
+    const file = probeFilePath({ ...policyOptions, workDir: cwd });
     try {
         await fs.mkdir(path.dirname(file), { recursive: true });
         await fs.writeFile(file, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
@@ -253,11 +305,13 @@ export async function runProbe({ bins = null, timeoutMs = DEFAULT_PROBE_TIMEOUT_
 /**
  * Читает кэш опроса БЕЗ проверки свежести (для adaptive-таймаутов и карантина).
  */
-async function loadProbeRaw() {
+async function loadProbeRaw({ effort = 'default', ...policyOptions } = {}) {
+    const policy = loadModelPolicy(policyOptions);
+    const file = probeFilePath(policyOptions);
     try {
-        const raw = await fs.readFile(probeFilePath(), 'utf-8');
+        const raw = await fs.readFile(file, 'utf-8');
         const parsed = JSON.parse(raw.replace(/^﻿/, ''));
-        return parsed?.results ? parsed : null;
+        return validateProbeCache(parsed, policy, effort, null);
     } catch {
         return null;
     }
@@ -266,13 +320,13 @@ async function loadProbeRaw() {
 /**
  * Читает кэш опроса, если он свежее maxAgeMs. Иначе null.
  */
-export async function loadProbe({ maxAgeMs = DEFAULT_TTL_MS } = {}) {
+export async function loadProbe({ maxAgeMs = DEFAULT_TTL_MS, effort = 'default', ...policyOptions } = {}) {
+    const policy = loadModelPolicy(policyOptions);
+    const file = probeFilePath(policyOptions);
     try {
-        const raw = await fs.readFile(probeFilePath(), 'utf-8');
+        const raw = await fs.readFile(file, 'utf-8');
         const parsed = JSON.parse(raw.replace(/^﻿/, ''));
-        if (!parsed.checked_at || !parsed.results) return null;
-        if (Date.now() - Date.parse(parsed.checked_at) > maxAgeMs) return null;
-        return parsed;
+        return validateProbeCache(parsed, policy, effort, maxAgeMs);
     } catch {
         return null;
     }
@@ -285,8 +339,9 @@ export async function loadProbe({ maxAgeMs = DEFAULT_TTL_MS } = {}) {
  *          fallback=true, когда живых внешних судей нет — валидировать должен
  *          независимый субагент IDE-агента (свежий контекст).
  */
-export async function getAvailableJudgeChain({ autoProbe = true, maxAgeMs = DEFAULT_TTL_MS, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, excludeFamily = null } = {}) {
-    const { chain, model } = await loadJudgeConfig();
+export async function getAvailableJudgeChain({ autoProbe = true, forceProbe = false, maxAgeMs = DEFAULT_TTL_MS, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, excludeFamily = null, effort = 'default', ...policyOptions } = {}) {
+    const policy = loadModelPolicy(policyOptions);
+    const { chain, model } = await loadJudgeConfig({ ...policyOptions, effort });
     // Drop judges of the worker's own family, but never down to zero — a
     // same-family live judge still beats degrading to the subagent fallback.
     const dropFamily = (list) => {
@@ -294,17 +349,18 @@ export async function getAvailableJudgeChain({ autoProbe = true, maxAgeMs = DEFA
         const diff = list.filter(b => familyOf(b) !== excludeFamily);
         return diff.length > 0 ? diff : list;
     };
-    let probe = await loadProbe({ maxAgeMs });
-    if (!probe && autoProbe) {
-        probe = await runProbe({ timeoutMs });
+    let probe = forceProbe ? null : await loadProbe({ maxAgeMs, effort, ...policyOptions });
+    if (policy && probe?.policy_fingerprint !== policy.fingerprint) probe = null;
+    if (!probe && (autoProbe || forceProbe)) {
+        probe = await runProbe({ timeoutMs, effort, ...policyOptions });
     }
     if (!probe) {
         // Опрос невозможен — работаем как раньше (полная цепочка, риск таймаутов).
-        return { chain: dropFamily(chain), model, probe: null, fallback: false, live_judges: [] };
+        return { chain: policy ? [] : dropFamily(chain), model, probe: null, fallback: !!policy, live_judges: [] };
     }
-    const available = dropFamily(chain.filter(bin => probe.results[bin]?.ok));
+    const available = dropFamily(chain.filter(bin => compatibleJudgeRecord(probe.results[bin], bin, policy, effort)));
     // Phase-2: also emit the live-judges list in the shape judgeSelector consumes.
-    const live_judges = liveJudgesFromProbe(probe);
+    const live_judges = liveJudgesFromProbe(probe, { ...policyOptions, effort, maxAgeMs, ...(policy ? { poolIds: chain } : {}) });
     return { chain: available, model, probe, fallback: available.length === 0, live_judges };
 }
 
@@ -316,6 +372,20 @@ export function probeSummary(probe) {
         .join(' | ');
 }
 
+// CLI and programmatic callers consume the same validated cache/selection path.
+// Kept separate from console/process plumbing for hermetic report regression tests.
+export async function probeCliReport({ force = false, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS, ...options } = {}) {
+    const available = await getAvailableJudgeChain({ timeoutMs, ...options, forceProbe: force });
+    const { chain } = await loadJudgeConfig(options);
+    return {
+        checked_at: available.probe?.checked_at ?? null,
+        results: available.probe?.results ?? {},
+        judge_chain: chain,
+        available_judges: available.probe ? available.chain : [],
+        validation_mode: available.probe && available.chain.length > 0 ? 'external' : 'subagent_fallback'
+    };
+}
+
 async function cliMain() {
     const args = process.argv.slice(2);
     const force = args.includes('--force');
@@ -324,24 +394,7 @@ async function cliMain() {
         ? parseInt(args[timeoutIdx + 1], 10)
         : DEFAULT_PROBE_TIMEOUT_MS;
 
-    let probe = force ? null : await loadProbe();
-    if (!probe) {
-        console.log(`🛰️  Опрос CLI-ИИ (таймаут ${timeoutMs} мс на бинарник, параллельно)...`);
-        probe = await runProbe({ timeoutMs });
-    } else {
-        console.log(`📦 Кэш опроса от ${probe.checked_at} (обновить: --force)`);
-    }
-
-    const { chain } = await loadJudgeConfig();
-    const available = chain.filter(bin => probe.results[bin]?.ok);
-
-    console.log(JSON.stringify({
-        checked_at: probe.checked_at,
-        results: probe.results,
-        judge_chain: chain,
-        available_judges: available,
-        validation_mode: available.length > 0 ? 'external' : 'subagent_fallback'
-    }, null, 2));
+    console.log(JSON.stringify(await probeCliReport({ force, timeoutMs }), null, 2));
     process.exit(0);
 }
 

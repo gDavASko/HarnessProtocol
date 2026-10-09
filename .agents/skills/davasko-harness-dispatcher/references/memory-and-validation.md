@@ -21,7 +21,8 @@ There are no silos.
   generated (one-way). Edits — only via `roadmapEdit.js` / `loopAdvancer.js`.
 - **The agent is strictly forbidden to delete tactical files.** Only a **human**
   may delete or clear L2.
-- Closing condition: the task is done, all checks passed, the human confirmed.
+- Technical closing condition: the task is done and all required checks passed.
+  Human product/release approval is separate and is never inferred from CI.
 
 ### L3 — Strategic memory (Wiki)
 - Verified reference documentation of the product.
@@ -97,6 +98,9 @@ node HarnessProtocol/Scripts/validator.js <task_dir> --node <ID> --type ai
   `awaiting_subagent_validation` stage declared by the validator itself.
   The verdict is recorded as `validation_mode: subagent_fallback` (auditable).
   Judging inside your own current context remains forbidden.
+  Under a selected studio policy or `HARNESS_OFFLINE=1`, native fallback is denied;
+  external failure remains UNVALIDATED and `--judge-file` cannot override that
+  boundary. Separately authorized host-native review is not a Harness CLI dispatch.
 - Manual judge invocation over any file:
   `node HarnessProtocol/Scripts/cli-judge.js --file <path>`
   (exit code 2 + fallback guidance when no external judge is alive).

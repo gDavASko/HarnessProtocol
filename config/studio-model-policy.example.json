@@ -1,0 +1,14 @@
+{
+  "kind": "harness-model-policy",
+  "schema_version": 1,
+  "id": "studio-example-inert",
+  "authorization_reference": "",
+  "allowed": [],
+  "limits": {
+    "max_calls": 4,
+    "max_output_tokens": 8192,
+    "max_elapsed_ms": 300000,
+    "call_timeout_ms": 60000,
+    "output_tokens_per_call": 2048
+  }
+}

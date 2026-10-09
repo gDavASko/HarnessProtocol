@@ -12,12 +12,22 @@
     "test:strategies": "node Scripts/test_strategies_subgraphs.js",
     "test:efficiency": "node Scripts/test_efficiency_modules.js",
     "test:ladder": "node Scripts/test_evidence_ladder.js",
+    "test:studio": "node --test Scripts/test_unity_results.mjs Scripts/test_evidence_freshness.mjs Scripts/test_model_policy.js Scripts/test_cli_transport.js Scripts/test_unity_runtime.mjs Scripts/test_skill_distribution.mjs Scripts/test_validator_boundaries.mjs Scripts/test_webgl_smoke.mjs Scripts/test_skill_distiller.mjs",
+    "unity:run": "node Scripts/unityRunner.mjs",
+    "unity:webgl-smoke": "node Scripts/webglSmoke.mjs",
+    "skills:check": "node Scripts/skillDistribution.mjs check",
+    "lint:tools": "node Scripts/toolBudgetLint.js",
+    "oracle:loop": "node Scripts/headlessLoop.mjs",
     "test:all": "node Scripts/run_all_tests.js"
   },
   "author": "DavASko",
   "license": "Apache-2.0",
   "dependencies": {
     "@langchain/core": "^0.3.40",
-    "@langchain/langgraph": "^0.2.55"
+    "@langchain/langgraph": "^0.2.55",
+    "saxes": "6.0.0"
+  },
+  "devDependencies": {
+    "playwright-core": "1.62.1"
   }
 }
