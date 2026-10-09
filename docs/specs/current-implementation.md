@@ -1,4 +1,4 @@
-﻿# Harness Protocol — Current Implementation (v2)
+# Harness Protocol — Current Implementation (v2)
 
 > Source of truth for the CURRENT Harness mechanics. Supplements and clarifies
 > the historical documents (`implementation_plan.md`, `memory-protocol.md`,
@@ -17,15 +17,28 @@
 | `task_initializer.js` | Deploys the L2 task skeleton (master + forks + `.harness_roadmap.json` + `.harness_state.json`). |
 | `roadmapEdit.js` | Roadmap edits (add-node, set-status, set-dod, set-field, set-current, set-config, list). The only way to change the roadmap. |
 | `contextAssembler.js` | 4 modes: `init`/`step`/`status` (JSON for the agent) and `validate` (generates `validation_report.md`). State gates. |
-| `validator.js` | Node validation: `auto` (commands), `ai` (external judge), `human` (approve/reject). |
-| `loopAdvancer.js` | Loop advancement: SUCCESS/FAIL, RETRY, CRITICAL_FAIL, TASK_COMPLETE, **SYNC_DUE** (drift-guard). |
+| `validator.js` | Node validation: `auto` (commands), `ai` (external judge), `oracle` (rungs), `human` (approve/reject). Enforces Oracle Floor and receipts. |
+| `loopAdvancer.js` | Loop advancement: SUCCESS/FAIL, RETRY, CRITICAL_FAIL, TASK_COMPLETE, **SYNC_DUE** (drift-guard), **NEEDS_FINAL_INTEGRATION**. |
 | `syncCheck.js` | Drift-guard: checks the accumulated implementation against the original spec via the external judge. |
-| `cliTransport.js` | Reliable invocation of external CLI AIs (external judge). Content never in argv — file/stdin only. |
+| `cliTransport.js` | Reliable invocation of external CLI AIs (external judge). Content never in argv — file/stdin only. Session reuse for workers. |
 | `aiProbe.js` | Preflight availability probe of the CLI judges. Runs in parallel at cycle start (`contextAssembler --mode init`), caches to `.harness/ai_probe.json` (TTL). All judge consumers filter the chain by the probe. |
 | `cli-judge.js` | Manual external judge over an arbitrary file. |
 | `judgeSelector.js` | Pure, side-effect-free judge-selection calculus (criticality → which judge(s), or `oracle_only` / `UNVALIDATED`). Node-runnable self-test. |
+| `evidenceLadder.js` | Evidence Ladder certification contract & Oracle Floor enforcement (rungs: compile, tests, console_clean, security). |
+| `sourceEvidence.js` | Cryptographic fingerprinting of source bytes and directory structure; detects tampering/rewriting during validation. |
+| `oracleSuggest.js` | Stack auto-detection and oracle command generation for node classes (`code.testable`, `code.behavioral`). |
+| `rubric.js` | 4-dimensional weighted scoring (functionality, quality, security, edge cases) with hard security floor for adversarial AI judges. |
+| `securityScan.js` | Turnkey deterministic scanning of changed deliverables for leaked credentials, secrets, and insecure patterns. |
+| `headlessLoop.mjs` | Virtualized requestAnimationFrame game loop runner for headless `console_clean` verification of web/canvas games. |
+| `unityRunner.mjs` | Bounded Unity CLI runner (preflight, compile, EditMode/PlayMode tests with NUnit parsing, WebGL builds). |
+| `parseUnityTestResults.mjs` | Strict NUnit XML parser for Unity test suites; asserts matching leaf test counts. |
+| `webglSmoke.mjs` | Loopback Playwright automation harness verifying WebGL WASM bundles and runtime state (`__harnessUnityState`). |
+| `modelPolicy.js` | Bounded model dispatch enforcing studio profiles, atomic reservation ledgers, and offline restrictions. |
+| `skillDistribution.mjs` | Cryptographically verified synchronization and distribution of canonical dispatcher skills across environments. |
+| `managedJob.mjs` | Structured background job manager for long-running CLI/compiler processes with atomic locks. |
 | `measureTokens.js` | Measures the token savings of contextAssembler vs naive L2 reading. |
 | `reindexTactical.js` | Auto-builds the navigation matrix in the master document. |
+| `run_all_tests.js` | Master test runner executing 18 complete suites across all subsystems in ~40 seconds. |
 
 ---
 
@@ -169,3 +182,70 @@ The agent-role subsystem lives in `agents/` and `config/` (docs) plus `Scripts/j
 - **Universal generator** (`agents/AGENT-DEFINITION-SPEC.md`): a deterministic recipe to emit native per-IDE agent files (Claude Code frontmatter, Codex prompts, Gemini Antigravity) from the canonical roles + config. Claude Code variants are emitted in `agents/claude/` (worker→sonnet, judge/evaluator→opus-4-7 read-only, reasoner/researcher/manager→opus-4-8).
 - **Judge-selection calculus** (`config/judge-selection.md`, `Scripts/judgeSelector.js`): pure `selectJudge({worker_family, artifact_kind, criticality, live_judges})` → chosen judge(s) / `oracle_only` / `UNVALIDATED`. Prefers cross-family (ranks it first) but keeps same-family isolated judges in the pool; optimizes by fit×criticality, then latency, then cost. L0→oracle only; L1→medium; L2→strong; L3→strong quorum (or dual-order if a single judge is live).
 - **F5 integrity wire** (`validator.js`, `cli-judge.js`): a subjective (`ai`) node is validated by an INDEPENDENT judge selected via `judgeSelector.js` — never the worker's own session. The full live-judge pool is passed to the selector, which ranks cross-family first but accepts a same-family isolated judge (e.g. a Claude subagent judging a Claude worker) when no cross-family judge is live; the node is `UNVALIDATED` (a terminal result, distinct from FAIL, that does not advance the loop) only when NO independent judge is live at all. The judge call uses a shorter default per-call timeout (60s) with a bounded retry, and the judge context is trimmed to DoD + changed evidence (not the full transcript).
+
+---
+
+## 12. LangGraph StateGraph Execution Core & Strategy Subgraphs
+
+Harness Protocol utilizes **LangGraph.js (`@langchain/langgraph`)** as its deterministic hierarchical execution runtime:
+- **`TaskOrchestratorGraph`** (`Scripts/graph/taskOrchestratorGraph.js`): Top-level graph managing task-wide roadmap lifecycle, scale-gate enforcement, drift-guard synchronization, and terminal acceptance.
+- **`RalphLoopSubgraph`** (`Scripts/graph/ralphLoopSubgraph.js`): Tactical execution graph managing iteration progression, memory distillation, and gated validation.
+- **7 Pluggable Strategy Subgraphs** (`Scripts/graph/strategies/`):
+  1. `chaining.js` — Sequential step-by-step DoD satisfaction with `op_memory.json`.
+  2. `routing.js` — Domain classification (`ui`, `audio`, `logic`, etc.) and specialized worker invocation via `op_route.json`.
+  3. `parallelization.js` — Independent DoD shard execution with collator aggregation (`op_collated.json`).
+  4. `orchestrator.js` — Dynamic step planner and worker dependency management (`op_plan.json`).
+  5. `evaluatorOptimizer.js` — Iterative generator-critic refinement loops (`op_feedback_loop.json`).
+  6. `mapReduce.js` — Large dataset chunking, parallel processing, and final synthesis (`op_reduce_final.json`).
+  7. `latm.js` — LLMs as Tool Makers: on-the-fly script synthesis, syntax guard validation, and sandboxed execution.
+- **`harnessCheckpointer.js`**: Disk-backed persistence adapter saving thread checkpoints to `.harness/checkpoints/` and mirror-updating `.harness_state.json` and Markdown forks.
+- **`syntaxGuard.js`**: Local pre-commit AST syntax validator (~5ms) intercepting broken code before any judge is invoked.
+- **`contractFormalizer.js`**: Sprint Contract compiler converting informal user requirements into typed Definition of Done specs.
+
+---
+
+## 13. Evidence Ladder & Oracle Floor (Levers 1′–6)
+
+Quality is guaranteed through executable truth rather than subjective diff-reading:
+- **The Core Invariant (Lever 1′)**: Every node is verified by the strongest oracle its artifact admits. The deterministic floor is non-negotiable. An LLM judge covers ONLY subjective intent/design that no oracle reaches, and never substitutes for a deterministic check.
+- **Artifact Classes**:
+  - `code.testable` — Libraries, CLI tools, pure logic: requires `compile` + `tests` + `security`.
+  - `code.behavioral` — GUI, animation loops, Unity gameplay: requires `compile` + `console_clean` + `tests` + `security`.
+  - `text` — Specifications, GDDs, documentation: adversarial AI judge with weighted rubric.
+- **Evidence Receipts (`evidence_receipts.json`)**: Every verification rung records an immutable receipt keyed to the active node and iteration.
+- **Source Snapshots (`sourceEvidence.js`)**: Cryptographic fingerprinting of all source files, timestamps, and directory structures. Restoring or mutating source code during validation fails the check.
+- **Security Floor**: Built-in deterministic scan (`securityScan.js`) detecting secret leaks (private keys, API tokens) and dangerous patterns (`eval`, disabled TLS).
+- **Weighted Adversarial Rubric (`rubric.js`)**: Scores 4 dimensions: Functionality (0.30), Quality (0.25), Security (0.25), Edge Cases (0.20). Composite score must be $\ge 7.0$ and security must clear a hard floor $\ge 5.0$.
+- **Mandatory Self-Review**: Before calling an AI judge on `code.*` nodes, the worker must complete `## SELF-REVIEW` in `validation_report.md` (DoD mapping, $\ge 3$ failure modes, and oracle proof).
+- **Final Integration Gate**: Before `TASK_COMPLETE`, `loopAdvancer` enforces a full-suite integration run on the merged codebase (`--node __TASK__ --type oracle --rung integration`).
+
+---
+
+## 14. ADR 0020 & ADR 0021 Implementations
+
+- **ADR 0020 (Total Ban on Uncontrolled Auto & Final Acceptance Stress-Gate)**:
+  - Banning blind `exit code 0` completions: unit tests alone never certify full-system integrity.
+  - After all tactical nodes close, `TaskOrchestratorGraph` enters `finalAcceptanceStressNode`, running end-to-end stress-tests and independent acceptance audits against `tactical_master.md`.
+  - Any regression or defect triggers the **Remediation Loop**, synthesizing `FIX-*` corrective nodes.
+- **ADR 0021 (Dynamic Runtime Node Decomposition & Adaptive Fracturing)**:
+  - `dynamicDecompositionGateNode` inspects node complexity ($\ge 3$ independent DoD criteria, complex strategies, or unexpected defects).
+  - Dynamically fractures the node into atomic sub-nodes (`NODE.1`, `NODE.2`), running independent Ralph loops for each slice.
+
+---
+
+## 15. Studio Runtime Hardening & Engine Verification
+
+- **Bounded Unity CLI Runner (`unityRunner.mjs`)**: Non-interactive, single JSON request execution adapter supporting `preflight`, `compile`, `test` (EditMode/PlayMode), and WebGL `build`.
+- **Strict NUnit XML Parser (`parseUnityTestResults.mjs`)**: Parses Unity Test Framework output, validating exact leaf test counts and rejecting skipped/malformed tests.
+- **Playwright WebGL Smoke Gate (`webglSmoke.mjs`)**: Headless browser automation serving WebGL bundles on loopback, executing WASM/canvas, sending synthetic input, and asserting state properties (`__harnessUnityState`).
+- **Headless RAF Game Loop (`headlessLoop.mjs`)**: Headless simulation runner for web/canvas games, auto-driving `requestAnimationFrame` for thousands of frames to catch NaN cascades and runtime crashes without a GUI.
+- **Bounded Model Policy (`modelPolicy.js`)**: Enforces explicit JSON authorization profiles (`HARNESS_STUDIO_PROFILE`), atomic cross-process token reservation ledgers, and strict offline guarantees (`HARNESS_OFFLINE=1`).
+- **Managed Background Jobs (`managedJob.mjs`)**: Lifecycle tracking, lockfiles, and output capture for external compiler and test processes.
+
+---
+
+## 16. Skill Distribution & Reusable Skill Distillation
+
+- **Skill Distribution (`skillDistribution.mjs`)**: CLI utility comparing and synchronizing canonical skills (`.agents/skills/davasko-harness-dispatcher`) with authorized local/global replicas (`skill/`, `~/.agents/skills/`). Enforces plan digests, backup creation, and rollback journals (`recovery.json`).
+- **Skill Distillation (`skillDistiller.js`)**: Analyzes closed L3 architectural nodes and automatically synthesizes self-contained, validated skill recipes in `.agents/skills/distilled-*/` for long-term capability transfer.
+

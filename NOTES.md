@@ -24,4 +24,7 @@
 - **Typed Event-Stream**: Неизменяемый лог событий и переходов в чекпоинтере.
 - **Final Acceptance Stress-Gate (ADR 0020)**: Полный запрет на закрытие задачи по коду выхода автотестов без независимого стресс-теста ИИ и ремедиации.
 - **Dynamic Node Decomposition & Adaptive Fracturing (ADR 0021)**: Динамическое дробление крупных узлов в рантайме на атомарные под-узлы при высокой сложности, многомерном DoD или обнаружении скрытых дефектов.
+- **Evidence Ladder & Oracle Floor (Levers 1′–6)**: Обязательный детерминированный пол (`compile`, `tests`, `console_clean`, `security`) перед любым LLM-судьей. Квитанции `evidence_receipts.json`, снимки исходников `sourceEvidence.js`.
+- **Studio Runtime Hardening**: Bounded Unity CLI Runner (`unityRunner.mjs`), Playwright WebGL Smoke Gate (`webglSmoke.mjs`), Headless RAF Loop (`headlessLoop.mjs`), строгая политика моделей (`modelPolicy.js`), дистрибуция навыков (`skillDistribution.mjs`).
 - **Push Right**: Выполнение максимального объема работы до обращения к человеку (Human Gate вызывается только в конце, с готовым decision-ready брифом).
+

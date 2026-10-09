@@ -331,3 +331,54 @@ _Avoid_: User prompt, interactive pause
 **Integrity Gate (F5)**:
 The comprehensive cross-validation barrier and automated stress-testing contour ensuring positive/negative gate enforcement and drift protection.
 _Avoid_: Test runner, smoke test, health check
+
+## Evidence Ladder & Studio Hardening
+
+**Evidence Ladder**:
+The certification framework (Levers 1′–6) establishing that quality arises from executable truth and adversarial verification, enforcing that every node is verified by the strongest oracle its artifact admits.
+_Avoid_: Test checklist, verification pipeline
+
+**Oracle Floor**:
+The non-negotiable deterministic verification baseline (`compile`, `tests`, `console_clean`, `security`) that must pass green on the current iteration before an LLM judge or human may evaluate intent.
+_Avoid_: Basic check, sanity test
+
+**Evidence Receipt**:
+An immutable JSON record (`evidence_receipts.json`) documenting the execution command, timestamp, exit code, and fingerprint of an oracle verification rung.
+_Avoid_: Test log, cache entry
+
+**Source Snapshot (sourceEvidence)**:
+A cryptographic fingerprint of source bytes, directory structure, and timestamps ensuring code was not mutated, restored, or artificially bypassed during validation.
+_Avoid_: Git status, diff check
+
+**Final Acceptance Stress-Gate (ADR 0020)**:
+A mandatory whole-system stress-test and AI audit executed after all roadmap nodes are closed, prohibiting completion until zero regressions, uncaught errors, or reference divergences remain.
+_Avoid_: Final review, acceptance signoff
+
+**Adaptive Fracturing (ADR 0021)**:
+The runtime decomposition of high-complexity or failing tactical nodes into atomic sub-nodes within a dynamic directed acyclic graph.
+_Avoid_: Manual subtasking, prompt splitting
+
+**Weighted Judge Rubric**:
+The four-dimensional evaluation calculus scoring functionality (0.30), quality (0.25), security (0.25), and edge cases (0.20) with a mandatory security floor ($\ge 5.0$) and overall threshold ($\ge 7.0$).
+_Avoid_: Subjective rating, arbitrary score
+
+**Bounded Model Policy**:
+The deterministic dispatch regulatory system enforcing authorized provider/model/role/effort tuples, atomic reserve budgets, and offline controls across all CLI transports.
+_Avoid_: Rate limiter, API wrapper
+
+**Skill Distribution**:
+The verified replication framework (`skillDistribution.mjs`) synchronizing canonical skills across environments via cryptographic plans, apply receipts, and rollback journals.
+_Avoid_: Copy script, file sync
+
+**Headless Loop Execution**:
+The headless virtualized simulation runner (`headlessLoop.mjs`) executing canvas/DOM requestAnimationFrame game loops to catch NaN cascades and runtime crashes without a GUI.
+_Avoid_: Web runner, headless browser
+
+**Unity CLI Runner**:
+The bounded, non-interactive execution adapter (`unityRunner.mjs`) managing Unity project preflight, compilation, EditMode/PlayMode testing, and WebGL builds.
+_Avoid_: Unity batch script, Unity MCP
+
+**WebGL Smoke Gate**:
+The loopback browser automation harness (`webglSmoke.mjs`) loading compiled WebAssembly/data bundles into Playwright to assert runtime state and canvas stability.
+_Avoid_: Web test, manual playtest
+

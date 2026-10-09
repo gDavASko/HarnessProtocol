@@ -51,14 +51,22 @@
 
 ---
 
-### 5. ⚙️ Конфигурация и модели (Configuration)
+### 5. 🎮 Студийный рантайм и харднинг (Studio Hardening)
+- [[unity-runtime|Bounded Unity CLI Runner]] — Пакетный адаптер Unity (`unityRunner.mjs`), верификация NUnit XML, компиляция и WebGL-сборка.
+- [[studio-runtime|Studio Runtime Hardening]] — Политика моделей `modelPolicy.js`, снимки исходников `sourceEvidence.js`, Playwright WebGL smoke runner.
+- [[skill-distribution|Skill Distribution Framework]] — Репликация и дистрибуция навыков (`skillDistribution.mjs`) с криптографическими планами и журналами отката.
+- [[studio-validation-2026-08-31|Studio Validation 2026-08-31]] — Протокол валидации и аудита стабильности студийного рантайма.
+
+---
+
+### 6. ⚙️ Конфигурация и модели (Configuration)
 - [[config/README|Harness Config Guide]] — Руководство по `harness.config.json` и локальным оверрайдам.
 - [[config/judge-selection|Judge Selection]] — Логика выбора судей.
 - [[config/reasoning-effort-selection|Reasoning Effort Selection]] — Выбор глубины рассуждений модели.
 
 ---
 
-### 6. 📊 Отчеты и планы (Reports & Plans)
+### 7. 📊 Отчеты и планы (Reports & Plans)
 - [[reports/STRESS_TEST_REPORT|Стресс-тест Harness Protocol]] — Сквозной аудит гейтов и стабильности.
 - [[reports/comparative-harness-systems-research|Сравнительное исследование Harness систем]] — Анализ 6 систем (Anthropic, OpenAI, Hermes, OpenHands, SWE-agent, LangGraph) и синтез лучших практик.
 - [[plans/implementation_plan|План реализации]] — Базовый план разработки.
@@ -66,7 +74,7 @@
 
 ---
 
-### 7. 📑 Реестр архитектурных решений (ADR Catalog)
+### 8. 📑 Реестр архитектурных решений (ADR Catalog)
 
 | ADR | Название решения | Статус |
 | :--- | :--- | :--- |
@@ -89,4 +97,7 @@
 | [[adr/0017-specialized-workflow-environments-and-phase-budgeting|ADR-0017]] | Specialized Workflow Environments and Phase Budgeting | Accepted |
 | [[adr/0018-task-archiving-and-retention-lifecycle|ADR-0018]] | Task Archiving and Retention Lifecycle | Accepted |
 | [[adr/0019-langgraph-stategraph-engine-and-plugin-subgraphs|ADR-0019]] | LangGraph StateGraph Engine and Strategy Subgraph Plugins | Accepted |
+| [[adr/0020-total-ban-on-uncontrolled-auto-and-final-acceptance-stress-gate|ADR-0020]] | Total Ban on Uncontrolled Auto & Final Acceptance Stress-Gate | Accepted |
+| [[adr/0021-dynamic-runtime-node-decomposition-and-adaptive-fracturing|ADR-0021]] | Dynamic Runtime Node Decomposition & Adaptive Fracturing | Accepted |
+
 
